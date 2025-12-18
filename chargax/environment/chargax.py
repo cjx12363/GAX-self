@@ -9,6 +9,8 @@ import datetime
 
 from chargax import JaxBaseEnv, TimeStep, EnvState, ChargersState, MultiDiscrete, Box, ChargingStation
 from ._data_loaders import get_scenario, get_car_data
+from chargax.util.reward_functions import get_reward_function, REWARD_PRESETS
+from chargax.util.cost_functions import get_cost_function, COST_PRESETS
 
 # disable jit
 # jax.config.update("jax_disable_jit", True)
@@ -34,13 +36,16 @@ class Chargax(JaxBaseEnv):
     num_chargers_per_group: int = 2
     num_dc_groups: int = 5
 
-    # reward alpha values
-    capacity_exceeded_alpha: float = 0.0
-    charged_satisfaction_alpha: float = 0.0
-    time_satisfaction_alpha: float = 0.0
-    rejected_customers_alpha: float = 0.0
-    battery_degredation_alpha: float = 0.0
-    beta: float = 0.0
+    # Reward和Cost函数配置
+    # 可选: "profit", "safety", "satisfaction", "balanced", "comprehensive"
+    reward_type: str = "profit"
+    # 可选: "safety", "satisfaction", "safety_satisfaction", "comprehensive"
+    cost_type: str = "safety"
+    
+    # 自定义reward权重 (仅当reward_type="custom"时使用)
+    reward_weights: Dict[str, float] = None
+    # 自定义cost权重 (仅当cost_type="custom"时使用)
+    cost_weights: Dict[str, float] = None
 
     # Env options:
     num_discretization_levels: int = 10 # 10 would mean each charger can charge 10%, 20%, ... of its max rate
@@ -521,23 +526,46 @@ class Chargax(JaxBaseEnv):
     #     raise NotImplementedError()
 
     def get_reward(self, old_state: EnvState, new_state: EnvState) -> chex.Array:
-        profit_delta = new_state.profit - old_state.profit
-        
-        # uncharged_delta = new_state.uncharged_percentages - old_state.uncharged_percentages
-        uncharged_delta = new_state.uncharged_kw - old_state.uncharged_kw
-        charged_overtime_delta = new_state.charged_overtime - old_state.charged_overtime
-        charged_undertime_delta = new_state.charged_undertime - old_state.charged_undertime
-        rejected_customers_delta = new_state.rejected_customers - old_state.rejected_customers
-        exceeded_capacity_delta = new_state.exceeded_capacity - old_state.exceeded_capacity
-        battery_degredation_delta = new_state.total_discharged_kw - old_state.total_discharged_kw # use discharged kw as proxy for degredation
-
-        return profit_delta - (
-              self.charged_satisfaction_alpha * uncharged_delta
-            + self.time_satisfaction_alpha * (charged_overtime_delta - (self.beta * charged_undertime_delta))
-            + self.rejected_customers_alpha * rejected_customers_delta
-            + self.capacity_exceeded_alpha * exceeded_capacity_delta
-            + self.battery_degredation_alpha * battery_degredation_delta
+        """使用util/reward_functions.py中的reward函数"""
+        from chargax.util.reward_functions import (
+            profit_only_reward, profit_with_safety_reward, profit_with_satisfaction_reward,
+            balanced_reward, comprehensive_reward, create_custom_reward
         )
+        
+        reward_funcs = {
+            "profit": profit_only_reward,
+            "safety": lambda o, n: profit_with_safety_reward(o, n, alpha=0.5),
+            "satisfaction": lambda o, n: profit_with_satisfaction_reward(o, n, alpha=0.1),
+            "balanced": lambda o, n: balanced_reward(o, n),
+            "comprehensive": lambda o, n: comprehensive_reward(o, n),
+        }
+        
+        if self.reward_type == "custom" and self.reward_weights is not None:
+            reward_fn = create_custom_reward(self.reward_weights)
+        else:
+            reward_fn = reward_funcs.get(self.reward_type, profit_only_reward)
+        
+        return reward_fn(old_state, new_state)
+    
+    def get_cost(self, info: Dict) -> chex.Array:
+        """使用util/cost_functions.py中的cost函数"""
+        from chargax.util.cost_functions import (
+            exceeded_capacity_cost, uncharged_kw_cost, combined_cost, create_custom_cost
+        )
+        
+        cost_funcs = {
+            "safety": exceeded_capacity_cost,
+            "satisfaction": uncharged_kw_cost,
+            "safety_satisfaction": lambda i: combined_cost(i, weights={"exceeded_capacity": 1.0, "uncharged_kw": 0.1}),
+            "comprehensive": lambda i: combined_cost(i, weights={"exceeded_capacity": 1.0, "uncharged_kw": 0.1, "rejected_customers": 0.5}),
+        }
+        
+        if self.cost_type == "custom" and self.cost_weights is not None:
+            cost_fn = create_custom_cost(self.cost_weights)
+        else:
+            cost_fn = cost_funcs.get(self.cost_type, exceeded_capacity_cost)
+        
+        return cost_fn(info)
         
     def get_terminated(self, state: EnvState) -> bool:
         return False
@@ -547,7 +575,7 @@ class Chargax(JaxBaseEnv):
     
     def get_info(self, state: EnvState, actions, old_state: EnvState = None) -> Dict[str, chex.Array]:
         if not self.full_info_dict:
-            return {
+            info = {
                 "logging_data": {
                     "profit": state.profit,
                     "exceeded_capacity": state.exceeded_capacity,
@@ -562,6 +590,9 @@ class Chargax(JaxBaseEnv):
                     "battery_percentage": state.battery_state.battery_percentage,
                 }
             }
+            # 添加cost字段供PID算法使用
+            info["cost"] = self.get_cost(info)
+            return info
         return {
             "actions": actions,
             **asdict(state),

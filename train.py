@@ -33,6 +33,10 @@ RUNTAG = None
 ALGORITHM = "ppo"              # 可选: "ppo", "random"
 TOTAL_TIMESTEPS = 10000000     # 总训练步数
 
+# Reward函数配置
+# 可选: "profit", "safety", "satisfaction", "balanced", "comprehensive"
+REWARD_TYPE = "profit"
+
 # 额外环境参数 (可根据需要添加)
 ENV_PARAMETERS = {
     # "param_name": value,
@@ -186,6 +190,7 @@ if __name__ == "__main__":
         arrival_frequency=ARRIVAL_FREQUENCY,
         car_profiles=CAR_PROFILES,
         num_dc_groups=NUM_DC_GROUPS,
+        reward_type=REWARD_TYPE,
         **ENV_PARAMETERS
     )
 

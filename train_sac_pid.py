@@ -27,6 +27,14 @@ RUNTAG = None
 # 训练配置
 TOTAL_TIMESTEPS = 1000000
 
+# Reward函数配置 (在环境中设置)
+# 可选: "profit", "safety", "satisfaction", "balanced", "comprehensive"
+REWARD_TYPE = "profit"
+
+# Cost函数配置 (在环境中设置)
+# 可选: "safety", "satisfaction", "safety_satisfaction", "comprehensive"
+COST_TYPE = "safety"
+
 # SAC-PID特有参数
 COST_LIMIT = 25.0
 PID_KP = 0.1
@@ -121,6 +129,8 @@ if __name__ == "__main__":
         arrival_frequency=ARRIVAL_FREQUENCY,
         car_profiles=CAR_PROFILES,
         num_dc_groups=NUM_DC_GROUPS,
+        reward_type=REWARD_TYPE,  # reward函数类型
+        cost_type=COST_TYPE,      # cost函数类型
         **ENV_PARAMETERS
     )
 
@@ -144,7 +154,7 @@ if __name__ == "__main__":
             "learning_starts": LEARNING_STARTS,
             "gradient_steps": GRADIENT_STEPS,
         },
-        baselines=baselines
+        baselines=baselines,
     )
 
     filtered_env_dict = {

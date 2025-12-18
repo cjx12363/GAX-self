@@ -27,6 +27,14 @@ RUNTAG = None
 # 训练配置
 TOTAL_TIMESTEPS = 1000000
 
+# Reward函数配置
+# 可选: "profit", "safety", "satisfaction", "balanced", "comprehensive"
+REWARD_TYPE = "profit"
+
+# Cost函数配置
+# 可选: "safety", "satisfaction", "safety_satisfaction", "comprehensive"
+COST_TYPE = "safety"
+
 # PPO-PID特有参数
 COST_LIMIT = 25.0        # 成本约束阈值
 PID_KP = 0.1             # PID比例系数
@@ -112,6 +120,8 @@ if __name__ == "__main__":
         arrival_frequency=ARRIVAL_FREQUENCY,
         car_profiles=CAR_PROFILES,
         num_dc_groups=NUM_DC_GROUPS,
+        reward_type=REWARD_TYPE,
+        cost_type=COST_TYPE,
         **ENV_PARAMETERS
     )
 

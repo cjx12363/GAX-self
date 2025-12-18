@@ -197,8 +197,19 @@ class Transition:
 
 
 def build_sac_pid_trainer(env: Chargax, config_params: dict = {}, baselines: dict = {}):
-    """构建SAC-PID训练器 (批量模式，类似PPO)"""
+    """
+    构建SAC-PID训练器 (批量模式，类似PPO)
     
+    Args:
+        env: Chargax环境 (cost通过env.cost_type配置)
+        config_params: 配置参数
+        baselines: 基线数据用于wandb日志
+    
+    Note:
+        reward和cost函数通过环境配置:
+        - env.reward_type: "profit", "safety", "satisfaction", "balanced", "comprehensive"
+        - env.cost_type: "safety", "satisfaction", "safety_satisfaction", "comprehensive"
+    """
     env = LogWrapper(env)
     env = NormalizeVecObservation(env)
     obs_space = env.observation_space
@@ -410,7 +421,9 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}, baselines: dic
             dist = ts.actor(obs)
             action = jnp.argmax(dist.logits, axis=-1) if config.evaluate_deterministically else dist.sample(seed=ak)
             (obs, r, term, trunc, info), es = env.step(sk, es, action)
-            return (rng, obs, es, jnp.logical_or(term, trunc), ep_r + r, ep_c + info.get("cost", 0.0))
+            # cost直接从info中获取（环境已计算）
+            cost = info.get("cost", 0.0)
+            return (rng, obs, es, jnp.logical_or(term, trunc), ep_r + r, ep_c + cost)
         rng, rk = jax.random.split(rng)
         obs, es = env.reset(rk)
         _, _, _, _, ep_r, ep_c = jax.lax.while_loop(lambda c: ~c[3], step_env, (rng, obs, es, False, 0.0, 0.0))
@@ -426,6 +439,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}, baselines: dic
             step_keys = jax.random.split(key, config.num_envs)
             (obsv, reward, term, trunc, info), es = jax.vmap(env.step)(step_keys, es, action)
             done = jnp.logical_or(term, trunc)
+            # cost直接从info中获取（环境已计算）
             cost = info.get("cost", jnp.zeros_like(reward))
             transition = Transition(observation=last_obs, action=action, reward=reward, cost=cost, done=done, info=info)
             return (ts, es, obsv, rng), transition
