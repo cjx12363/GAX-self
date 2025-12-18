@@ -1,14 +1,3 @@
-from chargax import (
-    Chargax,
-    get_scenario,
-    get_electricity_prices,
-    get_car_data,
-    pretty_print_charger_group,
-    build_random_trainer,
-    build_ppo_trainer
-)
-from chargax.algorithms import ppo
-
 import jax 
 import jax.numpy as jnp
 import time
@@ -19,6 +8,17 @@ from typing import Literal
 import numpy as np
 import equinox as eqx
 from tqdm import tqdm
+
+from chargax import (
+    Chargax,
+    get_scenario,
+    get_electricity_prices,
+    get_car_data,
+    build_random_trainer,
+    build_ppo_trainer
+)
+from chargax.algorithms import ppo
+from chargax.util.reward_functions import profit
 
 # ==================== 硬编码训练参数 ====================
 SEED = 42
@@ -34,8 +34,7 @@ ALGORITHM = "ppo"              # 可选: "ppo", "random"
 TOTAL_TIMESTEPS = 10000000     # 总训练步数
 
 # Reward函数配置
-# 可选: "profit", "safety", "satisfaction", "balanced", "comprehensive"
-REWARD_TYPE = "profit"
+REWARD_FN = profit 
 
 # 额外环境参数 (可根据需要添加)
 ENV_PARAMETERS = {
@@ -190,7 +189,7 @@ if __name__ == "__main__":
         arrival_frequency=ARRIVAL_FREQUENCY,
         car_profiles=CAR_PROFILES,
         num_dc_groups=NUM_DC_GROUPS,
-        reward_type=REWARD_TYPE,
+        reward_fn=REWARD_FN,
         **ENV_PARAMETERS
     )
 

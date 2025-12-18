@@ -1,12 +1,5 @@
 """SAC-PID训练脚本"""
 
-from chargax import (
-    Chargax,
-    get_electricity_prices,
-)
-from chargax.algorithms import build_sac_pid_trainer
-from chargax.algorithms import sac_pid
-
 import jax 
 import jax.numpy as jnp
 import time
@@ -14,6 +7,12 @@ import wandb
 import chex
 import numpy as np
 from tqdm import tqdm
+
+from chargax import Chargax, get_electricity_prices
+from chargax.algorithms import build_sac_pid_trainer
+from chargax.algorithms import sac_pid
+from chargax.util.reward_functions import profit
+from chargax.util.cost_functions import safety
 
 # ==================== 训练参数 ====================
 SEED = 42
@@ -27,14 +26,11 @@ RUNTAG = None
 # 训练配置
 TOTAL_TIMESTEPS = 1000000
 
-# Reward函数配置 (在环境中设置)
-# 可选: "profit", "safety", "satisfaction", "balanced", "comprehensive"
-REWARD_TYPE = "profit"
+# Reward函数配置
+REWARD_FN = profit
 
-# Cost函数配置 (在环境中设置)
-# 可选: "safety", "satisfaction", "safety_satisfaction", "comprehensive"
-COST_TYPE = "safety"
-
+# Cost函数配置
+COST_FN = safety  
 # SAC-PID特有参数
 COST_LIMIT = 25.0
 PID_KP = 0.1
@@ -129,8 +125,8 @@ if __name__ == "__main__":
         arrival_frequency=ARRIVAL_FREQUENCY,
         car_profiles=CAR_PROFILES,
         num_dc_groups=NUM_DC_GROUPS,
-        reward_type=REWARD_TYPE,  # reward函数类型
-        cost_type=COST_TYPE,      # cost函数类型
+        reward_fn=REWARD_FN,      # reward函数
+        cost_fn=COST_FN,          # cost函数
         **ENV_PARAMETERS
     )
 

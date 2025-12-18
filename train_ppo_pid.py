@@ -1,12 +1,5 @@
 """PPO-PID训练脚本"""
 
-from chargax import (
-    Chargax,
-    get_electricity_prices,
-)
-from chargax.algorithms import build_ppo_pid_trainer
-from chargax.algorithms import ppo_pid
-
 import jax 
 import jax.numpy as jnp
 import time
@@ -14,6 +7,12 @@ import wandb
 import chex
 import numpy as np
 from tqdm import tqdm
+
+from chargax import Chargax, get_electricity_prices
+from chargax.algorithms import build_ppo_pid_trainer
+from chargax.algorithms import ppo_pid
+from chargax.util.reward_functions import profit
+from chargax.util.cost_functions import safety
 
 # ==================== 训练参数 ====================
 SEED = 42
@@ -28,12 +27,10 @@ RUNTAG = None
 TOTAL_TIMESTEPS = 1000000
 
 # Reward函数配置
-# 可选: "profit", "safety", "satisfaction", "balanced", "comprehensive"
-REWARD_TYPE = "profit"
+REWARD_FN = profit
 
 # Cost函数配置
-# 可选: "safety", "satisfaction", "safety_satisfaction", "comprehensive"
-COST_TYPE = "safety"
+COST_FN = safety  
 
 # PPO-PID特有参数
 COST_LIMIT = 25.0        # 成本约束阈值
@@ -120,8 +117,8 @@ if __name__ == "__main__":
         arrival_frequency=ARRIVAL_FREQUENCY,
         car_profiles=CAR_PROFILES,
         num_dc_groups=NUM_DC_GROUPS,
-        reward_type=REWARD_TYPE,
-        cost_type=COST_TYPE,
+        reward_fn=REWARD_FN,
+        cost_fn=COST_FN,
         **ENV_PARAMETERS
     )
 
