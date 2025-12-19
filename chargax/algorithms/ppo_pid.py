@@ -8,16 +8,17 @@ PID控制器动态调整拉格朗日乘子，以满足成本约束。
 - Stooke et al., "Responsive Safety in Reinforcement Learning by PID Lagrangian Methods"
 """
 
-import jax
-import jax.numpy as jnp
-import equinox as eqx
-import chex
-import optax
-from typing import NamedTuple, List
+from typing import NamedTuple, List, Union
 from tqdm import tqdm
 
 from chargax import Chargax, LogWrapper, NormalizeVecObservation
 from chargax.algorithms.networks import ActorNetworkMultiDiscrete, CriticNetwork
+from chargax.util.pid_lagrange import (
+    PIDLagrangeConfig, 
+    PIDLagrangeState, 
+    init_pid_lagrange, 
+    update_pid_lagrange
+)
 import wandb
 
 _pbar = None
@@ -29,12 +30,14 @@ def create_ppo_pid_networks(
     actor_features: List[int],
     critic_features: List[int],
     actions_nvec: int,
+    num_costs: int = 1,
 ):
-    """创建PPO-PID网络 (actor + value critic + cost critic)"""
+    """创建PPO-PID网络 (actor + value critic + multi-channel cost critic)"""
     actor_key, critic_key, cost_critic_key = jax.random.split(key, 3)
     actor = ActorNetworkMultiDiscrete(actor_key, in_shape, actor_features, actions_nvec)
     critic = CriticNetwork(critic_key, in_shape, critic_features)
-    cost_critic = CriticNetwork(cost_critic_key, in_shape, critic_features)
+    # cost_critic 现在可以输出多个通道的 V 值
+    cost_critic = CriticNetwork(cost_critic_key, in_shape, critic_features, out_size=num_costs)
     return actor, critic, cost_critic
 
 
@@ -52,19 +55,19 @@ class PPOPIDConfig:
     ent_coef: float = 0.01
     vf_coef: float = 0.25
     
-    # PID拉格朗日参数
-    cost_limit: float = 25.0  # 成本约束阈值
-    lagrangian_multiplier_init: float = 0.001  # 拉格朗日乘子初始值
-    lambda_lr: float = 0.035  # 拉格朗日乘子学习率
-    lambda_optimizer: str = "adam"  # 拉格朗日乘子优化器
+    # PID拉格朗日参数 (支持多通道并行，可以是标量或长度为 num_costs 的数组)
+    num_costs: int = 1            # 约束通道数量
+    cost_limit: Union[float, jnp.ndarray] = 25.0  # 成本约束阈值
+    lagrangian_multiplier_init: Union[float, jnp.ndarray] = 0.001  # 拉格朗日乘子初始值
+    lambda_lr: Union[float, jnp.ndarray] = 0.035  # 拉格朗日乘子学习率
     
     # PID控制器参数
-    pid_kp: float = 0.1  # 比例系数
-    pid_ki: float = 0.01  # 积分系数
-    pid_kd: float = 0.01  # 微分系数
+    pid_kp: Union[float, jnp.ndarray] = 0.1  # 比例系数
+    pid_ki: Union[float, jnp.ndarray] = 0.01  # 积分系数
+    pid_kd: Union[float, jnp.ndarray] = 0.01  # 微分系数
     pid_d_delay: int = 10  # 微分项延迟步数
-    pid_delta_p_ema_alpha: float = 0.95  # P项EMA平滑系数
-    pid_delta_d_ema_alpha: float = 0.95  # D项EMA平滑系数
+    pid_delta_p_ema_alpha: Union[float, jnp.ndarray] = 0.95  # P项EMA平滑系数
+    pid_delta_d_ema_alpha: Union[float, jnp.ndarray] = 0.95  # D项EMA平滑系数
     
     # 训练参数
     total_timesteps: int = 5e6
@@ -106,12 +109,8 @@ class Transition:
 
 @chex.dataclass
 class PIDState:
-    """PID控制器状态"""
-    pid_i: float  # 积分项
-    cost_ds: chex.Array  # 用于计算微分项的历史成本
-    cost_d_index: int  # 当前索引
-    delta_p_ema: float  # P项EMA
-    delta_d_ema: float  # D项EMA
+    """PID控制器状态 (已弃用，改用 PIDLagrangeState)"""
+    pass
 
 
 class TrainState(NamedTuple):
@@ -120,8 +119,7 @@ class TrainState(NamedTuple):
     critic: eqx.Module
     cost_critic: eqx.Module
     optimizer_state: optax.OptState
-    lagrangian_multiplier: float
-    pid_state: PIDState
+    pid_state: PIDLagrangeState
 
 
 def build_ppo_pid_trainer(
@@ -147,7 +145,8 @@ def build_ppo_pid_trainer(
         in_shape=observation_space.shape[0],
         actor_features=[256, 256],
         critic_features=[256, 256],
-        actions_nvec=action_space.nvec
+        actions_nvec=action_space.nvec,
+        num_costs=config.num_costs
     )
 
     # 优化器
@@ -172,21 +171,25 @@ def build_ppo_pid_trainer(
         "cost_critic": cost_critic
     })
 
-    # 初始化PID状态
-    pid_state = PIDState(
-        pid_i=0.0,
-        cost_ds=jnp.zeros(config.pid_d_delay),
-        cost_d_index=0,
-        delta_p_ema=0.0,
-        delta_d_ema=0.0
+    # 初始化通用 PID 控制器
+    pid_config = PIDLagrangeConfig(
+        cost_limit=jnp.atleast_1d(config.cost_limit),
+        pid_kp=jnp.atleast_1d(config.pid_kp),
+        pid_ki=jnp.atleast_1d(config.pid_ki),
+        pid_kd=jnp.atleast_1d(config.pid_kd),
+        pid_d_delay=config.pid_d_delay,
+        pid_delta_p_ema_alpha=jnp.atleast_1d(config.pid_delta_p_ema_alpha),
+        pid_delta_d_ema_alpha=jnp.atleast_1d(config.pid_delta_d_ema_alpha),
+        lambda_lr=jnp.atleast_1d(config.lambda_lr),
+        lagrangian_multiplier_init=jnp.atleast_1d(config.lagrangian_multiplier_init)
     )
+    pid_state = init_pid_lagrange(pid_config, config.num_costs)
 
     train_state = TrainState(
         actor=actor,
         critic=critic,
         cost_critic=cost_critic,
         optimizer_state=optimizer_state,
-        lagrangian_multiplier=config.lagrangian_multiplier_init,
         pid_state=pid_state
     )
 
@@ -194,47 +197,7 @@ def build_ppo_pid_trainer(
     reset_key = jax.random.split(key, config.num_envs)
     obsv, env_state = jax.vmap(env.reset, in_axes=(0))(reset_key)
 
-    def pid_update(pid_state: PIDState, ep_cost_avg: float) -> tuple:
-        """PID控制器更新拉格朗日乘子
-        
-        error = cost - cost_limit
-        P项: Kp * error
-        I项: Ki * ∫error dt
-        D项: Kd * d(error)/dt = Kd * (error - prev_error)
-        """
-        error = ep_cost_avg - config.cost_limit
-        
-        # P项 (带EMA平滑)
-        delta_p = config.pid_delta_p_ema_alpha * pid_state.delta_p_ema + \
-                  (1 - config.pid_delta_p_ema_alpha) * error
-        
-        # I项: 累积误差
-        pid_i = pid_state.pid_i + error * config.pid_ki
-        
-        # D项: 误差变化率 (带延迟和EMA平滑)
-        # 存储历史error用于计算微分
-        error_history = pid_state.cost_ds.at[pid_state.cost_d_index].set(error)
-        next_index = (pid_state.cost_d_index + 1) % config.pid_d_delay
-        
-        # derivative = (error - prev_error) / delay
-        prev_error = pid_state.cost_ds[next_index]
-        derivative = (error - prev_error) / config.pid_d_delay
-        delta_d = config.pid_delta_d_ema_alpha * pid_state.delta_d_ema + \
-                  (1 - config.pid_delta_d_ema_alpha) * derivative
-        
-        # PID输出: Kp * P + Ki * I + Kd * D
-        pid_delta = config.pid_kp * delta_p + pid_i + config.pid_kd * delta_d
-        
-        # 更新PID状态
-        new_pid_state = PIDState(
-            pid_i=pid_i,
-            cost_ds=error_history,  # 存储error而非cost
-            cost_d_index=next_index,
-            delta_p_ema=delta_p,
-            delta_d_ema=delta_d
-        )
-        
-        return new_pid_state, pid_delta
+    # pid_update 逻辑已迁至 util.pid_lagrange
 
     def eval_func(train_state, rng):
         """评估函数"""
@@ -290,7 +253,8 @@ def build_ppo_pid_trainer(
             done = jnp.logical_or(terminated, truncated)
             
             # 获取cost信号，如果环境没有提供则默认为0
-            cost = info.get("cost", jnp.zeros_like(reward))
+            # 支持多通道 cost，info["cost"] 应该是 [num_envs, num_costs]
+            cost = info.get("cost", jnp.zeros((config.num_envs, config.num_costs)))
 
             transition = Transition(
                 observation=last_obs,
@@ -320,15 +284,17 @@ def build_ppo_pid_trainer(
             return (gae, value), (gae, gae + value)
         
         def _calculate_cost_gae(gae_and_next_value, transition):
-            """计算cost的GAE"""
-            gae, next_value = gae_and_next_value
+            """计算cost的GAE (支持多通道)"""
+            gae, next_value = gae_and_next_value # gae: [envs, costs], next_value: [envs, costs]
             cost_value, cost, done = (
-                transition.cost_value,
-                transition.cost,
-                transition.done,
+                transition.cost_value, # [envs, costs]
+                transition.cost,       # [envs, costs]
+                transition.done,       # [envs]
             )
-            delta = cost + config.gamma * next_value * (1 - done) - cost_value
-            gae = delta + config.gamma * config.gae_lambda * (1 - done) * gae
+            # 对每个通道独立计算 GAE
+            done_expanded = done[..., None]
+            delta = cost + config.gamma * next_value * (1 - done_expanded) - cost_value
+            gae = delta + config.gamma * config.gae_lambda * (1 - done_expanded) * gae
             return (gae, cost_value), (gae, gae + cost_value)
         
         def _update_epoch(update_state, _):
@@ -348,10 +314,13 @@ def build_ppo_pid_trainer(
                 
                 # 标准化advantages
                 _advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-                _cost_advantages = (cost_advantages - cost_advantages.mean()) / (cost_advantages.std() + 1e-8)
                 
-                # 组合reward和cost的advantages
-                combined_advantages = _advantages - lagrangian_multiplier * _cost_advantages
+                # 对每个 cost 通道独立标准化
+                _cost_advantages = (cost_advantages - cost_advantages.mean(axis=0)) / (cost_advantages.std(axis=0) + 1e-8)
+                
+                # 组合reward和多通道cost的advantages (向量点积: multiplier @ cost_adv)
+                # lagrangian_multiplier 是 [num_costs], _cost_advantages 是 [batch, num_costs]
+                combined_advantages = _advantages - jnp.dot(_cost_advantages, lagrangian_multiplier)
                 
                 actor_loss1 = combined_advantages * ratio
                 actor_loss2 = (
@@ -412,7 +381,6 @@ def build_ppo_pid_trainer(
                     critic=new_networks["critic"],
                     cost_critic=new_networks["cost_critic"],
                     optimizer_state=optimizer_state,
-                    lagrangian_multiplier=train_state.lagrangian_multiplier,
                     pid_state=train_state.pid_state
                 )
                 return (train_state, lagrangian_multiplier), (total_loss, aux)
@@ -435,7 +403,7 @@ def build_ppo_pid_trainer(
             
             (train_state, _), (total_loss, aux) = jax.lax.scan(
                 __update_over_minibatch, 
-                (train_state, train_state.lagrangian_multiplier), 
+                (train_state, train_state.pid_state.multipliers), 
                 minibatches
             )
             
@@ -480,28 +448,24 @@ def build_ppo_pid_trainer(
 
             train_state = update_state[0]
             
-            # 计算episode平均cost并更新PID
-            ep_cost_avg = trajectory_batch.cost.sum() / config.num_envs
-            new_pid_state, pid_delta = pid_update(train_state.pid_state, ep_cost_avg)
+            # 计算每个通道的平均 episode cost (shape: [num_costs])
+            # trajectory_batch.cost shape: [num_steps, num_envs, num_costs]
+            ep_cost_avg = trajectory_batch.cost.mean(axis=(0, 1)) 
             
-            # 更新拉格朗日乘子 (确保非负)
-            new_lagrangian = jnp.maximum(
-                0.0, 
-                train_state.lagrangian_multiplier + config.lambda_lr * pid_delta
-            )
+            # 使用通用 PID 控制器更新所有通道
+            new_pid_state = update_pid_lagrange(train_state.pid_state, pid_config, ep_cost_avg)
             
             train_state = TrainState(
                 actor=train_state.actor,
                 critic=train_state.critic,
                 cost_critic=train_state.cost_critic,
                 optimizer_state=train_state.optimizer_state,
-                lagrangian_multiplier=new_lagrangian,
                 pid_state=new_pid_state
             )
             
             metric = trajectory_batch.info
             metric["loss_info"] = loss_info
-            metric["lagrangian_multiplier"] = new_lagrangian
+            metric["lagrangian_multiplier"] = new_pid_state.multipliers
             metric["ep_cost_avg"] = ep_cost_avg
             rng = update_state[-1]
 
@@ -518,8 +482,8 @@ def build_ppo_pid_trainer(
                     _pbar.set_postfix({
                         "timestep": timestep, 
                         "eval_reward": f"{info['eval_rewards']:.2f}",
-                        "eval_cost": f"{info['eval_cost']:.2f}",
-                        "lambda": f"{info['lagrangian_multiplier']:.4f}"
+                        "eval_cost": f"{info['eval_cost']}", # 移除 :.2f
+                        "lambda": f"{info['lagrangian_multiplier']}" 
                     })
                 if config.debug:
                     print(f'timestep={(info["train_timestep"][-1][0] * config.num_envs)}, '

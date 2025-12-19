@@ -33,19 +33,20 @@ class CriticNetwork(eqx.Module):
     """
     layers: list
 
-    def __init__(self, key, in_shape, hidden_layers: List[int]):
-        keys = jax.random.split(key, len(hidden_layers))
+    def __init__(self, key, in_shape, hidden_layers: List[int], out_size: int = 1):
+        keys = jax.random.split(key, len(hidden_layers) + 1)
         self.layers = [ # 用第一层初始化
             eqx.nn.Linear(in_shape, hidden_layers[0], key=keys[0])
         ]
         for i, feature in enumerate(hidden_layers[:-1]):
-            self.layers.append(eqx.nn.Linear(feature, hidden_layers[i+1], key=keys[i]))
-        self.layers.append(eqx.nn.Linear(hidden_layers[-1], 1, key=keys[-1]))
+            self.layers.append(eqx.nn.Linear(feature, hidden_layers[i+1], key=keys[i+1]))
+        self.layers.append(eqx.nn.Linear(hidden_layers[-1], out_size, key=keys[-1]))
 
     def __call__(self, x):
         for layer in self.layers[:-1]:
             x = jax.nn.relu(layer(x))
-        return jnp.squeeze(self.layers[-1](x), axis=-1)
+        out = self.layers[-1](x)
+        return jnp.squeeze(out) if out.shape[-1] == 1 else out
 
 class Q_CriticNetwork(eqx.Module):
     """

@@ -18,6 +18,12 @@ from typing import NamedTuple, List, Tuple
 from functools import partial
 
 from chargax import Chargax, LogWrapper, NormalizeVecObservation
+from chargax.util.pid_lagrange import (
+    PIDLagrangeConfig, 
+    PIDLagrangeState, 
+    init_pid_lagrange, 
+    update_pid_lagrange
+)
 import wandb
 
 _pbar = None
@@ -65,7 +71,9 @@ class QNetworkMultiDiscrete(eqx.Module):
     layers: list
     output_heads: list
 
-    def __init__(self, key, in_shape, hidden_layers: List[int], actions_nvec):
+    out_size: int = 1
+
+    def __init__(self, key, in_shape, hidden_layers: List[int], actions_nvec, out_size: int = 1):
         if isinstance(actions_nvec, chex.Array):
             actions_nvec = actions_nvec.tolist()
         keys = jax.random.split(key, len(hidden_layers) + 1)
@@ -76,9 +84,10 @@ class QNetworkMultiDiscrete(eqx.Module):
             )
         head_keys = jax.random.split(keys[-1], len(actions_nvec))
         self.output_heads = [
-            eqx.nn.Linear(hidden_layers[-1], action, key=head_keys[i])
+            eqx.nn.Linear(hidden_layers[-1], action * out_size, key=head_keys[i])
             for i, action in enumerate(actions_nvec)
         ]
+        self.out_size = out_size
         if len(set(actions_nvec)) == 1:
             self.output_heads = jax.tree_util.tree_map(
                 lambda *v: jnp.stack(v), *self.output_heads
@@ -89,17 +98,21 @@ class QNetworkMultiDiscrete(eqx.Module):
             return head(x)
         for layer in self.layers:
             x = jax.nn.relu(layer(x))
-        return jax.vmap(forward, in_axes=(0, None))(self.output_heads, x)
+        out = jax.vmap(forward, in_axes=(0, None))(self.output_heads, x)
+        if self.out_size > 1:
+            # reshape [num_heads, action * out_size] -> [num_heads, action, out_size]
+            out = out.reshape(out.shape[0], -1, self.out_size)
+        return out
 
 
-def create_sac_pid_networks(key, in_shape, actor_features, critic_features, actions_nvec):
-    """创建SAC-PID网络"""
+def create_sac_pid_networks(key, in_shape, actor_features, critic_features, actions_nvec, num_costs: int = 1):
+    """创建SAC-PID网络 (支持多通道 cost critic)"""
     keys = jax.random.split(key, 5)
     actor = SACActorMultiDiscrete(keys[0], in_shape, actor_features, actions_nvec)
     q1 = QNetworkMultiDiscrete(keys[1], in_shape, critic_features, actions_nvec)
     q2 = QNetworkMultiDiscrete(keys[2], in_shape, critic_features, actions_nvec)
-    q1_cost = QNetworkMultiDiscrete(keys[3], in_shape, critic_features, actions_nvec)
-    q2_cost = QNetworkMultiDiscrete(keys[4], in_shape, critic_features, actions_nvec)
+    q1_cost = QNetworkMultiDiscrete(keys[3], in_shape, critic_features, actions_nvec, out_size=num_costs)
+    q2_cost = QNetworkMultiDiscrete(keys[4], in_shape, critic_features, actions_nvec, out_size=num_costs)
     q1_target = jax.tree.map(lambda x: x, q1)
     q2_target = jax.tree.map(lambda x: x, q2)
     q1_cost_target = jax.tree.map(lambda x: x, q1_cost)
@@ -118,15 +131,16 @@ class SACPIDConfig:
     target_entropy_scale: float = 0.89
     
     # PID拉格朗日参数
-    cost_limit: float = 25.0
-    lagrangian_multiplier_init: float = 0.001
-    lambda_lr: float = 0.035
-    pid_kp: float = 0.1
-    pid_ki: float = 0.01
-    pid_kd: float = 0.01
+    num_costs: int = 1
+    cost_limit: Union[float, jnp.ndarray] = 25.0
+    lagrangian_multiplier_init: Union[float, jnp.ndarray] = 0.001
+    lambda_lr: Union[float, jnp.ndarray] = 0.035
+    pid_kp: Union[float, jnp.ndarray] = 0.1
+    pid_ki: Union[float, jnp.ndarray] = 0.01
+    pid_kd: Union[float, jnp.ndarray] = 0.01
     pid_d_delay: int = 10
-    pid_delta_p_ema_alpha: float = 0.95
-    pid_delta_d_ema_alpha: float = 0.95
+    pid_delta_p_ema_alpha: Union[float, jnp.ndarray] = 0.95
+    pid_delta_d_ema_alpha: Union[float, jnp.ndarray] = 0.95
     
     # 训练参数 (类似PPO批量模式)
     total_timesteps: int = 1000000
@@ -160,11 +174,8 @@ class ReplayBuffer:
 
 @chex.dataclass
 class PIDState:
-    pid_i: float
-    cost_ds: chex.Array
-    cost_d_index: int
-    delta_p_ema: float
-    delta_d_ema: float
+    """已弃用"""
+    pass
 
 
 class TrainState(NamedTuple):
@@ -182,8 +193,7 @@ class TrainState(NamedTuple):
     q_cost_opt_state: optax.OptState
     log_alpha: chex.Array
     alpha_opt_state: optax.OptState
-    lagrangian_multiplier: float
-    pid_state: PIDState
+    pid_state: PIDLagrangeState
 
 
 @chex.dataclass(frozen=True)
@@ -223,7 +233,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
     # 创建网络
     (actor, q1, q2, q1_target, q2_target, 
      q1_cost, q2_cost, q1_cost_target, q2_cost_target) = create_sac_pid_networks(
-        net_key, obs_space.shape[0], [256, 256], [256, 256], act_space.nvec)
+        net_key, obs_space.shape[0], [256, 256], [256, 256], act_space.nvec, num_costs=config.num_costs)
 
     # 优化器
     actor_opt = optax.adam(config.learning_rate)
@@ -235,6 +245,19 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
     target_entropy = -config.target_entropy_scale * jnp.log(1.0 / num_actions) * len(act_space.nvec)
     log_alpha = jnp.array(jnp.log(config.alpha), dtype=jnp.float32)
 
+    # 初始化通用 PID
+    pid_util_config = PIDLagrangeConfig(
+        cost_limit=jnp.atleast_1d(config.cost_limit),
+        pid_kp=jnp.atleast_1d(config.pid_kp),
+        pid_ki=jnp.atleast_1d(config.pid_ki),
+        pid_kd=jnp.atleast_1d(config.pid_kd),
+        pid_d_delay=config.pid_d_delay,
+        pid_delta_p_ema_alpha=jnp.atleast_1d(config.pid_delta_p_ema_alpha),
+        pid_delta_d_ema_alpha=jnp.atleast_1d(config.pid_delta_d_ema_alpha),
+        lambda_lr=jnp.atleast_1d(config.lambda_lr),
+        lagrangian_multiplier_init=jnp.atleast_1d(config.lagrangian_multiplier_init)
+    )
+
     train_state = TrainState(
         actor=actor, q1=q1, q2=q2, q1_target=q1_target, q2_target=q2_target,
         q1_cost=q1_cost, q2_cost=q2_cost, q1_cost_target=q1_cost_target, q2_cost_target=q2_cost_target,
@@ -243,8 +266,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
         q_cost_opt_state=q_cost_opt.init({"q1_cost": q1_cost, "q2_cost": q2_cost}),
         log_alpha=log_alpha,
         alpha_opt_state=alpha_opt.init(log_alpha),
-        lagrangian_multiplier=config.lagrangian_multiplier_init,
-        pid_state=PIDState(pid_i=0.0, cost_ds=jnp.zeros(config.pid_d_delay), cost_d_index=0, delta_p_ema=0.0, delta_d_ema=0.0)
+        pid_state=init_pid_lagrange(pid_util_config, config.num_costs)
     )
 
     # Replay Buffer
@@ -252,7 +274,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
         obs=jnp.zeros((config.buffer_size,) + obs_space.shape),
         actions=jnp.zeros((config.buffer_size, len(act_space.nvec)), dtype=jnp.int32),
         rewards=jnp.zeros(config.buffer_size),
-        costs=jnp.zeros(config.buffer_size),
+        costs=jnp.zeros((config.buffer_size, config.num_costs)),
         next_obs=jnp.zeros((config.buffer_size,) + obs_space.shape),
         dones=jnp.zeros(config.buffer_size, dtype=jnp.bool_),
         pos=0, size=0
@@ -269,7 +291,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
         obs_flat = obs.reshape((batch_size,) + obs.shape[2:])
         actions_flat = actions.reshape((batch_size,) + actions.shape[2:])
         rewards_flat = rewards.reshape(batch_size)
-        costs_flat = costs.reshape(batch_size)
+        costs_flat = costs.reshape(batch_size, -1)
         next_obs_flat = next_obs.reshape((batch_size,) + next_obs.shape[2:])
         dones_flat = dones.reshape(batch_size)
         
@@ -302,16 +324,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
     def soft_update(target, online, tau):
         return jax.tree.map(lambda t, o: tau * o + (1 - tau) * t, target, online)
 
-    def pid_update(pid_state, ep_cost_avg):
-        delta = ep_cost_avg - config.cost_limit
-        delta_p = config.pid_delta_p_ema_alpha * pid_state.delta_p_ema + (1 - config.pid_delta_p_ema_alpha) * delta
-        pid_i = pid_state.pid_i + delta * config.pid_ki
-        cost_ds = pid_state.cost_ds.at[pid_state.cost_d_index].set(ep_cost_avg)
-        next_idx = (pid_state.cost_d_index + 1) % config.pid_d_delay
-        d_term = (ep_cost_avg - pid_state.cost_ds[next_idx]) / config.pid_d_delay
-        delta_d = config.pid_delta_d_ema_alpha * pid_state.delta_d_ema + (1 - config.pid_delta_d_ema_alpha) * d_term
-        pid_delta = config.pid_kp * delta_p + pid_i + config.pid_kd * delta_d
-        return PIDState(pid_i=pid_i, cost_ds=cost_ds, cost_d_index=next_idx, delta_p_ema=delta_p, delta_d_ema=delta_d), pid_delta
+    # pid_update 逻辑已迁至 util.pid_lagrange
 
 
     def update_critic(ts, batch, rng):
@@ -330,10 +343,12 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
         log_probs = jnp.log(next_probs + 1e-8)
         entropy = -jnp.sum(next_probs * log_probs, axis=-1)
         next_v = jnp.sum(next_probs * next_q_min, axis=-1).sum(axis=-1) + alpha * entropy.sum(axis=-1)
-        next_v_cost = jnp.sum(next_probs * next_q_cost_min, axis=-1).sum(axis=-1)
+        # next_v_cost: [batch, num_costs]
+        next_v_cost = jnp.sum(next_probs[..., None] * next_q_cost_min, axis=-2).sum(axis=-2)
         
         target_q = rewards + config.gamma * (1 - dones) * next_v
-        target_q_cost = costs + config.gamma * (1 - dones) * next_v_cost
+        # target_q_cost: [batch, num_costs]
+        target_q_cost = costs + config.gamma * (1 - dones[..., None]) * next_v_cost
 
         @eqx.filter_value_and_grad
         def q_loss_fn(params):
@@ -349,6 +364,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
             q1c = jax.vmap(params["q1_cost"])(obs)
             q2c = jax.vmap(params["q2_cost"])(obs)
             batch_idx = jnp.arange(obs.shape[0])
+            # q1c_vals: [batch, num_costs]
             q1c_vals = jnp.array([q1c[batch_idx, d, actions[:, d]] for d in range(actions.shape[1])]).sum(0)
             q2c_vals = jnp.array([q2c[batch_idx, d, actions[:, d]] for d in range(actions.shape[1])]).sum(0)
             return jnp.mean((q1c_vals - target_q_cost)**2) + jnp.mean((q2c_vals - target_q_cost)**2)
@@ -368,7 +384,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
     def update_actor(ts, batch):
         obs = batch[0]
         alpha = jnp.exp(ts.log_alpha)
-        lam = ts.lagrangian_multiplier
+        lam = ts.pid_state.multipliers # [num_costs]
 
         @eqx.filter_value_and_grad
         def actor_loss_fn(actor):
@@ -382,9 +398,11 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
             q2c = jax.vmap(ts.q2_cost)(obs)
             qc_min = jnp.minimum(q1c, q2c)
             exp_q = jnp.sum(probs * q_min, axis=-1).sum(axis=-1)
-            exp_qc = jnp.sum(probs * qc_min, axis=-1).sum(axis=-1)
+            # exp_qc: [batch, num_costs]
+            exp_qc = jnp.sum(probs[..., None] * qc_min, axis=-2).sum(axis=-2)
             entropy = -jnp.sum(probs * log_probs, axis=-1).sum(axis=-1)
-            return jnp.mean(-exp_q + lam * exp_qc - alpha * entropy)
+            # lam @ exp_qc: 向量内积
+            return jnp.mean(-exp_q + jnp.dot(exp_qc, lam) - alpha * entropy)
 
         loss, grads = actor_loss_fn(ts.actor)
         updates, opt_state = actor_opt.update(grads, ts.actor_opt_state)
@@ -439,8 +457,8 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
             step_keys = jax.random.split(key, config.num_envs)
             (obsv, reward, term, trunc, info), es = jax.vmap(env.step)(step_keys, es, action)
             done = jnp.logical_or(term, trunc)
-            # cost直接从info中获取（环境已计算）
-            cost = info.get("cost", jnp.zeros_like(reward))
+            # cost直接从info中获取（环境已计算），支持多通道 [num_envs, num_costs]
+            cost = info.get("cost", jnp.zeros((config.num_envs, config.num_costs)))
             transition = Transition(observation=last_obs, action=action, reward=reward, cost=cost, done=done, info=info)
             return (ts, es, obsv, rng), transition
 
@@ -477,10 +495,9 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
                 buffer.size >= config.learning_starts, do_updates, lambda x: x, (ts, buffer, rng))
             
             # PID更新
-            ep_cost_avg = traj.cost.sum() / config.num_envs
-            new_pid, pid_delta = pid_update(ts.pid_state, ep_cost_avg)
-            new_lam = jnp.maximum(0.0, ts.lagrangian_multiplier + config.lambda_lr * pid_delta)
-            ts = ts._replace(lagrangian_multiplier=new_lam, pid_state=new_pid)
+            ep_cost_avg = traj.cost.mean(axis=(0, 1)) # [num_costs]
+            new_pid_state = update_pid_lagrange(ts.pid_state, pid_util_config, ep_cost_avg)
+            ts = ts._replace(pid_state=new_pid_state)
             
             # 评估
             rng, eval_key = jax.random.split(rng)
@@ -489,7 +506,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
             metric = traj.info
             metric["eval_rewards"] = eval_r
             metric["eval_cost"] = eval_c
-            metric["lagrangian"] = new_lam
+            metric["lagrangian"] = new_pid_state.multipliers
             metric["alpha"] = jnp.exp(ts.log_alpha)
             metric["ep_cost_avg"] = ep_cost_avg
 
@@ -499,8 +516,8 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
                     _pbar.update(1)
                     _pbar.set_postfix({
                         "eval_r": f"{info['eval_rewards']:.2f}",
-                        "eval_c": f"{info['eval_cost']:.2f}",
-                        "lam": f"{info['lagrangian']:.4f}"
+                        "eval_c": f"{info['eval_cost']}",
+                        "lam": f"{info['lagrangian']}"
                     })
                 if config.debug:
                     print(f"eval_r={info['eval_rewards']:.2f}, eval_c={info['eval_cost']:.2f}, lam={info['lagrangian']:.4f}")
