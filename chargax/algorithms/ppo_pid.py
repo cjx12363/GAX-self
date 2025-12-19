@@ -11,6 +11,12 @@ PID控制器动态调整拉格朗日乘子，以满足成本约束。
 from typing import NamedTuple, List, Union
 from tqdm import tqdm
 
+import chex
+import jax
+import jax.numpy as jnp
+import optax
+import equinox as eqx
+
 from chargax import Chargax, LogWrapper, NormalizeVecObservation
 from chargax.algorithms.networks import ActorNetworkMultiDiscrete, CriticNetwork
 from chargax.util.pid_lagrange import (
@@ -242,7 +248,9 @@ def build_ppo_pid_trainer(
 
             action_dist = jax.vmap(train_state.actor)(last_obs)
             value = jax.vmap(train_state.critic)(last_obs)
+            # 确保 cost_value 始终是 [num_envs, num_costs] 形状
             cost_value = jax.vmap(train_state.cost_critic)(last_obs)
+            cost_value = jnp.atleast_2d(cost_value.T).T if cost_value.ndim == 1 else cost_value
             action, log_prob = action_dist.sample_and_log_prob(seed=sample_key)
 
             rng, key = jax.random.split(rng)
@@ -255,6 +263,8 @@ def build_ppo_pid_trainer(
             # 获取cost信号，如果环境没有提供则默认为0
             # 支持多通道 cost，info["cost"] 应该是 [num_envs, num_costs]
             cost = info.get("cost", jnp.zeros((config.num_envs, config.num_costs)))
+            # 确保 cost 始终是 [num_envs, num_costs] 形状
+            cost = jnp.atleast_2d(cost.T).T if cost.ndim == 1 else cost
 
             transition = Transition(
                 observation=last_obs,
@@ -431,6 +441,8 @@ def build_ppo_pid_trainer(
             
             # 计算cost GAE
             last_cost_value = jax.vmap(train_state.cost_critic)(last_obs)
+            # 确保 last_cost_value 始终是 [num_envs, num_costs] 形状
+            last_cost_value = jnp.atleast_2d(last_cost_value.T).T if last_cost_value.ndim == 1 else last_cost_value
             _, (cost_advantages, cost_returns) = jax.lax.scan(
                 _calculate_cost_gae,
                 (jnp.zeros_like(last_cost_value), last_cost_value),

@@ -14,7 +14,7 @@ import jax.numpy as jnp
 import equinox as eqx
 import chex
 import optax
-from typing import NamedTuple, List, Tuple
+from typing import NamedTuple, List, Tuple, Union
 from functools import partial
 
 from chargax import Chargax, LogWrapper, NormalizeVecObservation
