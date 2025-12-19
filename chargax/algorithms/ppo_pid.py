@@ -127,7 +127,6 @@ class TrainState(NamedTuple):
 def build_ppo_pid_trainer(
     env: Chargax,
     config_params: dict = {},
-    baselines: dict = {},
 ):
     """构建PPO-PID训练器"""
     
@@ -135,7 +134,7 @@ def build_ppo_pid_trainer(
     env = NormalizeVecObservation(env)
     observation_space = env.observation_space
     action_space = env.action_space
-    logging_baselines = baselines
+
 
     config = PPOPIDConfig(**config_params)
 
@@ -541,8 +540,7 @@ def build_ppo_pid_trainer(
                             "eval_cost": info["eval_cost"],
                             "lagrangian_multiplier": info["lagrangian_multiplier"],
                             "ep_cost_avg": info["ep_cost_avg"],
-                            **info["logging_data"],
-                            **logging_baselines
+                            **info["logging_data"]
                         })
 
             jax.debug.callback(callback, metric)

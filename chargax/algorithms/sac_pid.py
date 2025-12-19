@@ -196,7 +196,7 @@ class Transition:
     info: chex.Array
 
 
-def build_sac_pid_trainer(env: Chargax, config_params: dict = {}, baselines: dict = {}):
+def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
     """
     构建SAC-PID训练器 (批量模式，类似PPO)
     
@@ -214,7 +214,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}, baselines: dic
     env = NormalizeVecObservation(env)
     obs_space = env.observation_space
     act_space = env.action_space
-    logging_baselines = baselines
+
     config = SACPIDConfig(**config_params)
 
     rng = jax.random.PRNGKey(config.seed)
@@ -516,7 +516,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}, baselines: dic
                             "lagrangian": info["lagrangian"],
                             "alpha": info["alpha"],
                             "ep_cost_avg": info["ep_cost_avg"],
-                            **log_data, **logging_baselines
+                            **log_data
                         })
             jax.debug.callback(callback, metric)
             

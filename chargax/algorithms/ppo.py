@@ -83,7 +83,6 @@ class TrainState(NamedTuple):
 def build_ppo_trainer(
         env: Chargax,
         config_params: dict = {},
-        baselines: dict = {}, # Will be inserted every wandb log step
     ):
 
     # setup env (wrappers) and config
@@ -93,7 +92,7 @@ def build_ppo_trainer(
     observation_space = env.observation_space
     action_space = env.action_space
     num_actions = action_space.n
-    logging_baselines = baselines
+
 
     config = PPOConfig(**config_params)
 
@@ -355,8 +354,7 @@ def build_ppo_trainer(
                         wandb.log({
                             "timestep": info["train_timestep"][-1][0] * config.num_envs, 
                             "eval_rewards": info["eval_rewards"],
-                            **info["logging_data"],
-                            **logging_baselines
+                            **info["logging_data"]
                         })
 
             jax.debug.callback(callback, metric)
