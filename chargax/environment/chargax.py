@@ -33,6 +33,7 @@ class Chargax(JaxBaseEnv):
     num_chargers: int = 16
     num_chargers_per_group: int = 2
     num_dc_groups: int = 5
+    transformer_capacity_kw: float = None  # 变压器容量限制，None表示无限制
 
     reward_fn: Callable = None
     cost_fn: Callable = None
@@ -70,7 +71,8 @@ class Chargax(JaxBaseEnv):
         station = ChargingStation(
             num_chargers=self.num_chargers, 
             num_chargers_per_group=self.num_chargers_per_group, 
-            num_dc_groups=self.num_dc_groups
+            num_dc_groups=self.num_dc_groups,
+            transformer_capacity_kw=self.transformer_capacity_kw
         )
         self.__setattr__("station", station)
 

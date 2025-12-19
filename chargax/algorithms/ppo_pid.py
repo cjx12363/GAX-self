@@ -196,33 +196,40 @@ def build_ppo_pid_trainer(
     obsv, env_state = jax.vmap(env.reset, in_axes=(0))(reset_key)
 
     def pid_update(pid_state: PIDState, ep_cost_avg: float) -> tuple:
-        """PID控制器更新拉格朗日乘子"""
-        delta = ep_cost_avg - config.cost_limit
+        """PID控制器更新拉格朗日乘子
+        
+        error = cost - cost_limit
+        P项: Kp * error
+        I项: Ki * ∫error dt
+        D项: Kd * d(error)/dt = Kd * (error - prev_error)
+        """
+        error = ep_cost_avg - config.cost_limit
         
         # P项 (带EMA平滑)
         delta_p = config.pid_delta_p_ema_alpha * pid_state.delta_p_ema + \
-                  (1 - config.pid_delta_p_ema_alpha) * delta
+                  (1 - config.pid_delta_p_ema_alpha) * error
         
-        # I项
-        pid_i = pid_state.pid_i + delta * config.pid_ki
+        # I项: 累积误差
+        pid_i = pid_state.pid_i + error * config.pid_ki
         
-        # D项 (带延迟和EMA平滑)
-        cost_ds = pid_state.cost_ds.at[pid_state.cost_d_index].set(ep_cost_avg)
+        # D项: 误差变化率 (带延迟和EMA平滑)
+        # 存储历史error用于计算微分
+        error_history = pid_state.cost_ds.at[pid_state.cost_d_index].set(error)
         next_index = (pid_state.cost_d_index + 1) % config.pid_d_delay
         
-        # 计算微分
-        old_cost = pid_state.cost_ds[next_index]
-        d_term = (ep_cost_avg - old_cost) / config.pid_d_delay
+        # derivative = (error - prev_error) / delay
+        prev_error = pid_state.cost_ds[next_index]
+        derivative = (error - prev_error) / config.pid_d_delay
         delta_d = config.pid_delta_d_ema_alpha * pid_state.delta_d_ema + \
-                  (1 - config.pid_delta_d_ema_alpha) * d_term
+                  (1 - config.pid_delta_d_ema_alpha) * derivative
         
-        # 计算拉格朗日乘子增量
+        # PID输出: Kp * P + Ki * I + Kd * D
         pid_delta = config.pid_kp * delta_p + pid_i + config.pid_kd * delta_d
         
         # 更新PID状态
         new_pid_state = PIDState(
             pid_i=pid_i,
-            cost_ds=cost_ds,
+            cost_ds=error_history,  # 存储error而非cost
             cost_d_index=next_index,
             delta_p_ema=delta_p,
             delta_d_ema=delta_d
