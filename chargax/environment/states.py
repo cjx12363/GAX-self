@@ -287,7 +287,7 @@ class ChargingStation(eqx.Module):
     """
     charger_layout: StationSplitter
 
-    def __init__(self, num_chargers: int = 16, num_chargers_per_group: int = 2, num_dc_groups: int = 5):
+    def __init__(self, num_chargers: int = 16, num_chargers_per_group: int = 2, num_dc_groups: int = 5, transformer_capacity_kw: float = None):
         assert num_chargers % num_chargers_per_group == 0, "Chargers must be divisible by chargers_per_group"
         assert num_chargers_per_group >= 1, "Chargers per group must be greater than 0"
         assert num_chargers > num_chargers_per_group, "Chargers must be greater than chargers_per_group"
@@ -304,9 +304,11 @@ class ChargingStation(eqx.Module):
         EVSEs = DC_EVSEs + AC_EVSEs
         
         combined_total_capacity = sum([group.group_capacity_max_kw for group in EVSEs])
+        # 如果指定了变压器容量，使用指定值；否则使用所有EVSE容量之和
+        actual_capacity = transformer_capacity_kw if transformer_capacity_kw is not None else combined_total_capacity
         grid_connection_node = StationSplitter(
             connections=EVSEs,
-            group_capacity_max_kw=combined_total_capacity
+            group_capacity_max_kw=actual_capacity
         )
 
         self.charger_layout = grid_connection_node
