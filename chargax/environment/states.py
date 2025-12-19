@@ -288,30 +288,13 @@ class ChargingStation(eqx.Module):
     charger_layout: StationSplitter
 
     def __init__(self, num_chargers: int = 16, num_chargers_per_group: int = 2, num_dc_groups: int = 5, transformer_capacity_kw: float = None):
-        assert num_chargers % num_chargers_per_group == 0, "Chargers must be divisible by chargers_per_group"
-        assert num_chargers_per_group >= 1, "Chargers per group must be greater than 0"
-        assert num_chargers > num_chargers_per_group, "Chargers must be greater than chargers_per_group"
-
-        charger_indices = np.arange(num_chargers)
-        charger_indices = charger_indices.reshape(-1, num_chargers_per_group)
-
-        DC_EVSEs = [
-            StationEVSE(connections=ci, voltage_rated=500.0, current_max=300.0) for ci in charger_indices[:num_dc_groups]
-        ]
-        AC_EVSEs = [
-            StationEVSE(connections=ci) for ci in charger_indices[num_dc_groups:] # default is set to 230V, 50A (11.5kW)
-        ]
-        EVSEs = DC_EVSEs + AC_EVSEs
-        
-        combined_total_capacity = sum([group.group_capacity_max_kw for group in EVSEs])
-        # 如果指定了变压器容量，使用指定值；否则使用所有EVSE容量之和
-        actual_capacity = transformer_capacity_kw if transformer_capacity_kw is not None else combined_total_capacity
-        grid_connection_node = StationSplitter(
-            connections=EVSEs,
-            group_capacity_max_kw=actual_capacity
+        from .station_builder import build_default_station
+        self.charger_layout = build_default_station(
+            num_chargers=num_chargers,
+            num_chargers_per_group=num_chargers_per_group,
+            num_dc_groups=num_dc_groups,
+            transformer_capacity_kw=transformer_capacity_kw
         )
-
-        self.charger_layout = grid_connection_node
 
     @property
     def root(self) -> StationSplitter:
