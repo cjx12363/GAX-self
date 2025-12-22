@@ -10,7 +10,7 @@ from chargax.util.cost_functions import safety
 NUM_CHARGERS = 16
 NUM_CHARGERS_PER_GROUP = 2
 NUM_DC_GROUPS = 5
-TRANSFORMER_CAPACITY_KW = None  # None表示无限制
+TRANSFORMER_CAPACITY_KW = 250.0  # 设定固定容量限制以触发过载
 
 # 场景配置
 CAR_PROFILES = "eu"  # 可选: "eu", "us", "world"
@@ -58,6 +58,7 @@ def create_env() -> Chargax:
         minutes_per_timestep=MINUTES_PER_TIMESTEP,
         include_battery=INCLUDE_BATTERY,
         allow_discharging=ALLOW_DISCHARGING,
+        renormalize_currents=False,  # 关闭自动限流，让违规行为产生真实的 cost 信号
         
         # 奖励和成本函数
         reward_fn=profit,

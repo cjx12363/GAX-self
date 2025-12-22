@@ -495,7 +495,8 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
                 buffer.size >= config.learning_starts, do_updates, lambda x: x, (ts, buffer, rng))
             
             # PID更新
-            ep_cost_avg = traj.cost.mean(axis=(0, 1)) # [num_costs]
+            # 计算每个 env 的总 cost (sum over steps)，然后在 env 维度取平均
+            ep_cost_avg = traj.cost.sum(axis=0).mean(axis=0) # [num_costs]
             new_pid_state = update_pid_lagrange(ts.pid_state, pid_util_config, ep_cost_avg)
             ts = ts._replace(pid_state=new_pid_state)
             

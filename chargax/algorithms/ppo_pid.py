@@ -460,9 +460,8 @@ def build_ppo_pid_trainer(
 
             train_state = update_state[0]
             
-            # 计算每个通道的平均 episode cost (shape: [num_costs])
-            # trajectory_batch.cost shape: [num_steps, num_envs, num_costs]
-            ep_cost_avg = trajectory_batch.cost.mean(axis=(0, 1)) 
+            # 计算每个通道的平均 episode cost (每个 env 的总 cost 在 env 维度取平均)
+            ep_cost_avg = trajectory_batch.cost.sum(axis=0).mean(axis=0) 
             
             # 使用通用 PID 控制器更新所有通道
             new_pid_state = update_pid_lagrange(train_state.pid_state, pid_config, ep_cost_avg)

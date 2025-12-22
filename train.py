@@ -23,11 +23,16 @@ TOTAL_TIMESTEPS = 1_000_000
 RUNTAG = None
 
 # ==================== 2. PID 约束参数 (适用于 ppo_pid, sac_pid) ====================
-COST_LIMIT = 25.0          # 成本约束阈值
-PID_KP = 0.1               # PID 比例系数
-PID_KI = 0.01              # PID 积分系数
-PID_KD = 0.01              # PID 微分系数
-LAMBDA_LR = 0.035          # 拉格朗日乘子学习率
+# A. 物理限制与缩放对齐 (解决量级不匹配问题)
+PHYSICAL_LIMIT_KW = 25.0       # 物理意义：允许变压器过载 25.0 kW
+COST_SCALE = 0.3               # 必须与 cost_functions.py 中的 scale 保持一致！
+COST_LIMIT = PHYSICAL_LIMIT_KW * COST_SCALE  # 自动计算算法使用的 Limit
+
+# B. PID 控制参数
+PID_KP = 0.01                  # 比例系数 (P): 降低以避免初期过冲 (0.1 -> 0.01)
+PID_KI = 1                     # 积分系数 (I): 主要靠积分消除稳态误差
+PID_KD = 0.05                  # 微分系数 (D): 预测趋势，抑制震荡
+LAMBDA_LR = 0.0005             # 乘子学习率
 # ======================================================
 
 if __name__ == "__main__":
