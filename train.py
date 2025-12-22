@@ -108,7 +108,7 @@ if __name__ == "__main__":
     # 打印算法特定的最终状态
     if ALGORITHM in ["ppo_pid", "sac_pid"]:
         trained_state = trained_runner_state[0]
-        print(f"最终拉格朗日乘子: {trained_state.lagrangian_multiplier:.4f}")
+        print(f"最终拉格朗日乘子: {trained_state.pid_state.multipliers}")
         if ALGORITHM == "sac_pid":
             print(f"最终熵系数 alpha: {jnp.exp(trained_state.log_alpha):.4f}")
 
