@@ -10,10 +10,17 @@ from typing import Dict, Callable
 import chex
 
 
-def safety(info: Dict, scale: float = 0.3, **kwargs) -> chex.Array:
-    """变压器过载 (默认缩放 0.1)"""
+def safety(info: Dict, scale: float = 1.0, **kwargs) -> chex.Array:
+    """
+    变压器过载约束（归一化版本）。
+    Cost = (超过的功率 / 变压器总容量)
+    """
     logging_data = info.get("logging_data", {})
-    return logging_data.get("exceeded_capacity", 0.0) * scale
+    exceeded = logging_data.get("exceeded_capacity", 0.0)
+    capacity = logging_data.get("transformer_capacity", 1.0)
+    
+    normalized_cost = exceeded / capacity
+    return normalized_cost * scale
 
 
 def satisfaction(info: Dict, scale: float = 0.1, **kwargs) -> chex.Array:

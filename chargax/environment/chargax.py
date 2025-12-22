@@ -543,6 +543,7 @@ class Chargax(JaxBaseEnv):
                 "logging_data": {
                     "profit": state.profit,
                     "exceeded_capacity": state.exceeded_capacity,
+                    "transformer_capacity": self.station.charger_layout.group_capacity_max_kw,
                     "total_charged_kw": state.total_charged_kw,
                     "total_discharged_kw": state.total_discharged_kw,
                     "rejected_customers": state.rejected_customers,

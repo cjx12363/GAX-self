@@ -134,12 +134,10 @@ class SACPIDConfig:
     num_costs: int = 1
     cost_limit: Union[float, jnp.ndarray] = 25.0
     lagrangian_multiplier_init: Union[float, jnp.ndarray] = 0.001
-    lambda_lr: Union[float, jnp.ndarray] = 0.035
     pid_kp: Union[float, jnp.ndarray] = 0.1
     pid_ki: Union[float, jnp.ndarray] = 0.01
-    pid_kd: Union[float, jnp.ndarray] = 0.01
+    pid_kd: Union[float, jnp.ndarray] = 0.0  # 默认关闭
     pid_d_delay: int = 10
-    pid_delta_p_ema_alpha: Union[float, jnp.ndarray] = 0.95
     pid_delta_d_ema_alpha: Union[float, jnp.ndarray] = 0.95
     
     # 训练参数 (类似PPO批量模式)
@@ -252,9 +250,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
         pid_ki=jnp.atleast_1d(config.pid_ki),
         pid_kd=jnp.atleast_1d(config.pid_kd),
         pid_d_delay=config.pid_d_delay,
-        pid_delta_p_ema_alpha=jnp.atleast_1d(config.pid_delta_p_ema_alpha),
         pid_delta_d_ema_alpha=jnp.atleast_1d(config.pid_delta_d_ema_alpha),
-        lambda_lr=jnp.atleast_1d(config.lambda_lr),
         lagrangian_multiplier_init=jnp.atleast_1d(config.lagrangian_multiplier_init)
     )
 

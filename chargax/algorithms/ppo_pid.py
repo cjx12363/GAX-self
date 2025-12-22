@@ -65,14 +65,12 @@ class PPOPIDConfig:
     num_costs: int = 1            # 约束通道数量
     cost_limit: Union[float, jnp.ndarray] = 25.0  # 成本约束阈值
     lagrangian_multiplier_init: Union[float, jnp.ndarray] = 0.001  # 拉格朗日乘子初始值
-    lambda_lr: Union[float, jnp.ndarray] = 0.035  # 拉格朗日乘子学习率
     
     # PID控制器参数
     pid_kp: Union[float, jnp.ndarray] = 0.1  # 比例系数
     pid_ki: Union[float, jnp.ndarray] = 0.01  # 积分系数
-    pid_kd: Union[float, jnp.ndarray] = 0.01  # 微分系数
+    pid_kd: Union[float, jnp.ndarray] = 0.0  # 微分系数，默认关闭
     pid_d_delay: int = 10  # 微分项延迟步数
-    pid_delta_p_ema_alpha: Union[float, jnp.ndarray] = 0.95  # P项EMA平滑系数
     pid_delta_d_ema_alpha: Union[float, jnp.ndarray] = 0.95  # D项EMA平滑系数
     
     # 训练参数
@@ -184,9 +182,7 @@ def build_ppo_pid_trainer(
         pid_ki=jnp.atleast_1d(config.pid_ki),
         pid_kd=jnp.atleast_1d(config.pid_kd),
         pid_d_delay=config.pid_d_delay,
-        pid_delta_p_ema_alpha=jnp.atleast_1d(config.pid_delta_p_ema_alpha),
         pid_delta_d_ema_alpha=jnp.atleast_1d(config.pid_delta_d_ema_alpha),
-        lambda_lr=jnp.atleast_1d(config.lambda_lr),
         lagrangian_multiplier_init=jnp.atleast_1d(config.lagrangian_multiplier_init)
     )
     pid_state = init_pid_lagrange(pid_config, config.num_costs)
