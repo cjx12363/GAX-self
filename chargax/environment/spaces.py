@@ -5,7 +5,7 @@ import jax
 from typing import Any, Union, Tuple
 
 class Space:
-    """Minimal jittable class for abstract gymnax space."""
+    """抽象 gymnax 空间的最小可 JIT 类。"""
 
     def sample(self, rng: chex.PRNGKey) -> chex.Array:
         raise NotImplementedError
@@ -15,7 +15,7 @@ class Space:
 
 
 class Discrete(Space):
-    """Minimal jittable class for discrete gymnax spaces."""
+    """离散 gymnax 空间的最小可 JIT 类。"""
 
     def __init__(self, num_categories: int):
         assert num_categories >= 0
@@ -24,13 +24,13 @@ class Discrete(Space):
         self.dtype = jnp.int16
 
     def sample(self, rng: chex.PRNGKey) -> chex.Array:
-        """Sample random action uniformly from set of categorical choices."""
+        """从分类选择集合中均匀采样随机动作。"""
         return jax.random.randint(
             rng, shape=self.shape, minval=0, maxval=self.n
         ).astype(self.dtype)
 
     def contains(self, x: int) -> bool:
-        """Check whether specific object is within space."""
+        """检查特定对象是否在空间内。"""
         # type_cond = isinstance(x, self.dtype)
         # shape_cond = (x.shape == self.shape)
         range_cond = jnp.logical_and(x >= 0, x < self.n)
@@ -39,8 +39,8 @@ class Discrete(Space):
 
 class MultiDiscrete(Space):
     """
-    Minimal implementation of a MultiDiscrete space.
-    input nvec: array of integers representing the number of discrete values in each dimension
+    MultiDiscrete 空间的最小实现。
+    输入 nvec：表示每个维度中离散值数量的整数数组
     """
 
     def __init__(self, nvec: chex.Array, dtype: jnp.dtype = jnp.int8, start: int = 0):
@@ -65,7 +65,7 @@ class MultiDiscrete(Space):
     
 
 class Box(Space):
-    """Minimal jittable class for array-shaped gymnax spaces."""
+    """数组形状的 gymnax 空间的最小可 JIT 类。"""
 
     def __init__(
         self,
@@ -80,13 +80,13 @@ class Box(Space):
         self.dtype = dtype
 
     def sample(self, rng: chex.PRNGKey) -> chex.Array:
-        """Sample random action uniformly from 1D continuous range."""
+        """从一维连续范围中均匀采样随机动作。"""
         return jax.random.uniform(
             rng, shape=self.shape, minval=self.low, maxval=self.high
         ).astype(self.dtype)
 
     def contains(self, x: int) -> jnp.ndarray:
-        """Check whether specific object is within space."""
+        """检查特定对象是否在空间内。"""
         # type_cond = isinstance(x, self.dtype)
         # shape_cond = (x.shape == self.shape)
         range_cond = jnp.logical_and(jnp.all(x >= self.low), jnp.all(x <= self.high))

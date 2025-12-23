@@ -15,17 +15,17 @@ class CarProfiles:
     dc_max_rate: chex.Array
 
 class ChargersState(eqx.Module):
-    # Car variables
+    # 车辆变量
     car_time_till_leave: chex.Array
     car_battery_now_kw: chex.Array
     car_battery_capacity_kw: chex.Array
     car_desired_battery_percentage: chex.Array
-    car_arrival_battery_kw: chex.Array # To compensate / block the agent from discharging further than the arrival battery
-    charge_sensitive: chex.Array # False = Time sensitive
+    car_arrival_battery_kw: chex.Array # 用于补偿/阻止智能体放电超过到达时的电量
+    charge_sensitive: chex.Array # False = 时间敏感型
 
-    # we need to keep track of the discharging per EV
-    # as we discharge, and later charge agian, we can't have the 
-    # customer pay for the energy twice
+    # 我们需要跟踪每个 EV 的放电情况
+    # 当我们放电并随后再次充电时，我们不能让
+    # 客户支付两次电费
     car_discharged_this_session_kw: chex.Array 
 
     car_ac_absolute_max_charge_rate_kw: chex.Array
@@ -33,12 +33,12 @@ class ChargersState(eqx.Module):
     car_dc_absolute_max_charge_rate_kw: chex.Array
     car_dc_optimal_charge_threshold: chex.Array
     
-    # Charger variables
+    # 充电桩变量
     charger_current_now: chex.Array
     charger_is_car_connected: chex.Array
-    charger_voltage: np.ndarray # We assume this is constant for all chargers
+    charger_voltage: np.ndarray # 我们假设所有充电桩的电压都是常数
     charger_is_dc: np.ndarray 
-    # max current is set in the EVSE
+    # 最大电流在 EVSE 中设置
 
     @property
     def car_battery_percentage(self) -> jnp.ndarray:
@@ -59,7 +59,7 @@ class ChargersState(eqx.Module):
     
     @property
     def charger_throughput_now_kw(self) -> jnp.ndarray:
-        """ Uses absolute value of current to calculate throughput """
+        """ 使用电流的绝对值来计算吞吐量 """
         return (self.charger_voltage * jnp.abs(self.charger_current_now)) / 1000.0
     
     @property
@@ -78,21 +78,21 @@ class ChargersState(eqx.Module):
             (self.car_dc_optimal_charge_threshold, self.car_dc_absolute_max_charge_rate_kw),
             (self.car_ac_optimal_charge_threshold, self.car_ac_absolute_max_charge_rate_kw)
         )
-        # linearly decay the charge rate to 5% after reaching the threshold
+        # 达到阈值后，充电速率线性衰减至 5%
         max_charge_rate_kw = jnp.where(
             battery_percentage > tau,
             abs_max_rate * (1 - (battery_percentage - tau) / (1 - tau) + 0.10),
             abs_max_rate
-        ) * self.charger_is_car_connected # charge rate is 0 if car is not connected
+        ) * self.charger_is_car_connected # 如果未连接车辆，充电速率为 0
         max_charge_rate_w = max_charge_rate_kw * 1000.0
-        return (max_charge_rate_w / (self.charger_voltage + 1e-8)) # add small value to avoid division by zero
+        return (max_charge_rate_w / (self.charger_voltage + 1e-8)) # 添加极小值以避免除以零
 
     def __init__(
             self, 
             station: 'ChargingStation' = None, 
             **kwargs
         ):
-        if kwargs: # To allow for replace(..., **kwargs)
+        if kwargs: # 允许使用 replace(..., **kwargs)
             self.__dict__.update(kwargs)
             return
         
@@ -102,11 +102,11 @@ class ChargersState(eqx.Module):
         for field in fields(self):
             setattr(self, field.name, jnp.zeros(num_chargers))
 
-        # set types
+        # 设置类型
         self.car_time_till_leave = self.car_time_till_leave.astype(int)
         self.charge_sensitive = self.charge_sensitive.astype(bool)
         
-        # set charger voltage and dc/ac
+        # 设置充电桩电压和 dc/ac
         rated_voltages = [np.repeat(evse.voltage_rated, len(evse.connections)) for evse in station.evses]
         max_kw = [np.repeat(evse.group_capacity_max_kw, len(evse.connections)) for evse in station.evses]
         voltages_per_charger = np.concatenate(rated_voltages)
@@ -114,7 +114,7 @@ class ChargersState(eqx.Module):
         self.charger_voltage = voltages_per_charger
         self.charger_is_dc = max_kw_per_charger > 50.0
 
-        # init these empty for every sample method
+        # 对每种采样方法初始化这些空值
         self.charger_current_now = jnp.zeros(num_chargers)
         self.charger_is_car_connected = jnp.zeros(num_chargers, dtype=bool)
         self.car_discharged_this_session_kw = jnp.zeros(num_chargers)
@@ -122,12 +122,11 @@ class ChargersState(eqx.Module):
 
 class StationSplitter(eqx.Module):
     """
-    A splitter represents any combination of switchboards, cables, transformers,
-    or other auxiliary equipment that may induce a loss and is part of the network of
-    chargers.
-    A splitter can contain:
-    - EVSEs
-    - Other Splitters
+    Splitter 代表配电盘、电缆、变压器或其他辅助设备的任何组合，
+    这些设备可能会导致损耗并属于充电网络的一部分。
+    一个 Splitter 可以包含：
+    - EVSE
+    - 其他 Splitter
     """
     connections: List[Union['StationEVSE', 'StationSplitter']]
     group_capacity_max_kw: float = eqx.field(static=True)
@@ -153,25 +152,12 @@ class StationSplitter(eqx.Module):
     def splitters_children(self) -> List['StationSplitter']:
         return jax.tree.leaves(self.connections, is_leaf=lambda x: isinstance(x, StationSplitter))
 
-    # @property
-    # def evse_per_chargepoint_children(self) -> List['StationEVSE']:
-    #     """ 
-    #         Returns a list of EVSEs of length num_chargers (that are children of this group).
-    #         Each index of the list corresponds to the charger index and contains the 
-    #         EVSE that is the parent connection of the charger.
-    #     """
-    #     EVSEs = self.evse_children
-    #     evse_per_chargepoint = []
-    #     for evse in EVSEs:
-    #         evse_per_chargepoint.extend([evse] * len(evse.connections))
-    #     return evse_per_chargepoint
-
     @property
     def efficiency_per_charger(self) -> jnp.ndarray:
         efficiency_to_chargepoint = np.ones(self.number_of_chargers_children)
         for path, charger_ids in jax.tree.leaves_with_path(self):
             curr_node = self
-            for node in path[:-1]: # omit the last node which is the charger
+            for node in path[:-1]: # 省略最后一个节点（即充电桩）
                 if isinstance(node, jax.tree_util.GetAttrKey):
                     curr_node = curr_node.connections
                 elif isinstance(node, jax.tree_util.SequenceKey):
@@ -184,35 +170,10 @@ class StationSplitter(eqx.Module):
 
         return efficiency_to_chargepoint
     
-    # def total_draw_or_supply_kw(self, charger_state: 'ChargersState') -> float:
-    #     children_charger_outputs = charger_state.charger_output_now_kw[self.charger_ids_children]
-    #     return jnp.sum(children_charger_outputs)
-    
-    # def total_kw_to_customers(self, charger_state: 'ChargersState') -> float:
-    #     children_charger_outputs = charger_state.charger_output_now_kw[self.charger_ids_children]
-    #     charger_outputs_ex_discharge = jnp.maximum(children_charger_outputs, 0)
-    #     return jnp.sum(charger_outputs_ex_discharge)
-    
-    # def total_kw_to_grid(self, charger_state: 'ChargersState') -> float:
-    #     children_charger_outputs = charger_state.charger_output_now_kw[self.charger_ids_children]
-    #     charger_outputs_ex_charge = jnp.minimum(children_charger_outputs, 0)
-    #     return jnp.sum(jnp.abs(charger_outputs_ex_charge))
-
-    # def total_power_output_kw(self, charger_state: 'ChargersState') -> float:
-    #     children_charger_outputs = charger_state.charger_output_now_kw[self.charger_ids_children]
-    #     return jnp.sum(children_charger_outputs)
-    
     def total_kw_throughput(self, charger_state: 'ChargersState') -> float:
         children_charger_outputs = charger_state.charger_throughput_now_kw[self.charger_ids_children]
         return jnp.sum(children_charger_outputs)
-    
-    # def total_power_loss_kw(self, charger_state: 'ChargersState') -> float:
-    #     losses = self.total_power_throughput_kw(charger_state) / self.efficiency_per_charger
-    #     return jnp.sum(losses)
-    
-    # def total_power_draw_kw(self, charger_state: 'ChargersState') -> float:
-    #     return self.total_power_output_kw(charger_state) + self.total_power_loss_kw(charger_state)    
-    
+
     def normalize_currents(self, charger_state: 'ChargersState') -> 'ChargersState':
 
         max_capacity = self.group_capacity_max_kw
@@ -233,13 +194,13 @@ class StationSplitter(eqx.Module):
     
     def get_parent(self, root: 'StationSplitter'):
         """
-        Find the parent of the current StationSplitter instance starting from the root.
+        从根节点开始寻找当前 StationSplitter 实例的父节点。
 
-        Args:
-            root (StationSplitter): The root of the tree to start the search from.
+        参数:
+            root (StationSplitter): 开始搜索的树根节点。
         
-        Returns:
-            Optional[StationSplitter]: The parent of the current instance if found, otherwise None.
+        返回:
+            Optional[StationSplitter]: 如果找到，则返回当前实例的父节点，否则返回 None。
         """
         for connection in root.connections:
             if isinstance(connection, StationSplitter):
@@ -252,9 +213,9 @@ class StationSplitter(eqx.Module):
     
 class StationEVSE(StationSplitter):
     """
-    An EVSE -- the final splitter in the hierarchy -- is a splitter that connects to the chargers.
+    一个 EVSE -- 等级结构中的最终 splitter -- 是连接到充电桩的 splitter。
     """
-    connections: np.ndarray = eqx.field(converter=np.asarray) # Charger indices
+    connections: np.ndarray = eqx.field(converter=np.asarray) # 充电桩索引
     voltage_rated: float = eqx.field(static=True)
     current_max: float = eqx.field(static=True)
 
@@ -267,7 +228,7 @@ class StationEVSE(StationSplitter):
 
 class StationBattery(eqx.Module):
     """
-    A battery for the hub. Can be used to store excess energy or to provide energy to the grid.
+    充电中心使用的蓄电池。可用于储存多余能量或向电网供电。
     """
     capacity_kw: float = 100000.0
     battery_now: float = 0.0
@@ -280,10 +241,10 @@ class StationBattery(eqx.Module):
 
 class ChargingStation(eqx.Module):
     """
-        The hub is the top level of the charger hierarchy.
-        It contains the topology of the chargers as a tree of ChargerNodes,
-        where the root node is the grid connection.
-        As well as a single object containing the state of all chargers.
+        充电站是充电桩层级结构的最高层。
+        它包含充电桩的拓扑结构，作为一个 ChargerNode 树，
+        其中根节点是电网连接。
+        以及一个包含所有充电桩状态的单一对象。
     """
     charger_layout: StationSplitter
 
@@ -298,7 +259,7 @@ class ChargingStation(eqx.Module):
 
     @property
     def root(self) -> StationSplitter:
-        """ Convenience method to get the root node of the charger layout """
+        """ 用于获取充电桩布局根节点的便捷方法 """
         return self.charger_layout
 
     @property
@@ -321,10 +282,6 @@ class ChargingStation(eqx.Module):
     def splitters(self) -> List[StationSplitter]:
         return self.charger_layout.splitters_children
     
-    # @property
-    # def evse_per_chargepoint(self) -> List['StationEVSE']:
-    #     return self.charger_layout.evse_per_chargepoint_children
-
 @chex.dataclass(frozen=True)
 class EnvState:
     day_of_year: int # Sampled at reset()
@@ -334,12 +291,12 @@ class EnvState:
     timestep: int = 0
     is_workday: bool = True
 
-    # Reward variables
+    # 奖励变量
     profit: float = 0.0
     uncharged_percentages: float = 0.0
     uncharged_kw: float = 0.0
-    charged_overtime: int = 0 # Minutes over the desired charge time
-    charged_undertime: int = 0 # Minutes under the desired charge time (positive reward)
+    charged_overtime: int = 0 # 超过期望充电时间的分钟数
+    charged_undertime: int = 0 # 低于期望充电时间的分钟数（正向奖励）
     rejected_customers: int = 0
     left_customers: int = 0
     exceeded_capacity: float = 0.0

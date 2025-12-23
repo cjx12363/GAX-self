@@ -22,25 +22,25 @@ class TimeStep(NamedTuple):
 
 class JaxBaseEnv(eqx.Module):
     """
-    Base class for a JAX environment.
-    This class inherits from eqx.Module, meaning it is a PyTree node and a dataclass.
-    set params by setting the properties of the class.
-    Much of the modules are inspired by the Gymnax base class.
+    JAX 环境的基类。
+    该类继承自 eqx.Module，这意味着它是一个 PyTree 节点和一个数据类。
+    通过设置类的属性来设置参数。
+    大部分模块灵感来自 Gymnax 基类。
     """
 
     # example_property: int = 0
 
     def __check_init__(self):
         """
-        An equinox module that always runs on initialization.
-        Can be used to check if parameters are set correctly, without overwriting __init__.
+        一个在初始化时始终运行的 equinox 模块。
+        可用于检查参数设置是否正确，而无需覆盖 __init__。
         """
         pass
 
     def step(
         self, key: chex.PRNGKey, state: EnvState, action: Union[int, float, chex.Array]
     ) -> Tuple[TimeStep, EnvState]:
-        """Performs step transitions in the environment."""
+        """在环境中执行步进转换。"""
 
         (obs_step, reward, terminated, truncated, info), state_step = self.step_env(
             key, state, action
@@ -50,7 +50,7 @@ class JaxBaseEnv(eqx.Module):
 
         done = jnp.any(jnp.logical_or(terminated, truncated))
         
-        # Auto-reset environment based on termination
+        # 基于终止状态自动重置环境
         state = jax.tree.map(
             lambda x, y: jax.lax.select(done, x, y), state_reset, state_step
         )
@@ -62,20 +62,20 @@ class JaxBaseEnv(eqx.Module):
         return TimeStep(obs, reward, terminated, truncated, info), state
 
     def reset(self, key: chex.PRNGKey) -> Tuple[chex.Array, EnvState]:
-        """Performs resetting of environment."""
+        """执行环境重置。"""
         obs, state = self.reset_env(key)
         return obs, state
 
     @abstractmethod
     def reset_env(self, key: chex.PRNGKey) -> Tuple[chex.Array, EnvState]:
-        """Environment-specific reset transition."""
+        """特定于环境的重置转换。"""
         raise NotImplementedError()
 
     @abstractmethod
     def step_env(
         self, key: chex.PRNGKey, state: EnvState, action: Union[int, float, chex.Array]
     ) -> Tuple[TimeStep, EnvState]:
-        """Environment-specific step transition."""
+        """特定于环境的步进转换。"""
         raise NotImplementedError() 
 
 

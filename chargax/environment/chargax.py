@@ -10,7 +10,7 @@ import datetime
 from chargax import JaxBaseEnv, TimeStep, EnvState, ChargersState, MultiDiscrete, Box, ChargingStation
 from ._data_loaders import get_scenario, get_car_data
 
-# disable jit
+# 禁用 jit
 # jax.config.update("jax_disable_jit", True)
 
 
@@ -20,7 +20,7 @@ class Chargax(JaxBaseEnv):
     elec_grid_sell_price: jnp.ndarray = eqx.field(converter=jnp.asarray) # €/kWh
     elec_customer_sell_price: float = 0.75 # €/kWh
 
-    # Data:
+    # 数据：
     ev_arrival_means_workdays: jnp.ndarray = None
     ev_arrival_means_non_workdays: jnp.ndarray = None
 
@@ -28,7 +28,7 @@ class Chargax(JaxBaseEnv):
     user_profiles: Literal["highway", "residential", "workplace", "shopping", "custom"] = eqx.field(converter=str.lower, default="shopping")
     arrival_frequency: Union[int, Literal["low", "medium", "high"]] = 100
 
-    # Station:
+    # 站点：
     station: ChargingStation = ChargingStation()
     num_chargers: int = 16
     num_chargers_per_group: int = 2
@@ -38,8 +38,8 @@ class Chargax(JaxBaseEnv):
     reward_fn: Callable = None
     cost_fn: Callable = None
 
-    # Env options:
-    num_discretization_levels: int = 10 # 10 would mean each charger can charge 10%, 20%, ... of its max rate
+    # 环境选项：
+    num_discretization_levels: int = 10 # 10 表示每个充电桩可以按其最大速率的 10%, 20%, ... 进行充电
     minutes_per_timestep: int = 5
     renormalize_currents: bool = True
     include_battery: bool = True
@@ -79,16 +79,16 @@ class Chargax(JaxBaseEnv):
         # self.__setattr__("some_property", some_property_value)
 
     def __check_init__(self):
-        # assert anything ...
+        # 断言任何内容...
         pass 
 
     def reset_env(self, key: chex.PRNGKey) -> Tuple[Dict[str, chex.Array], EnvState]:
         day_of_year = jax.random.randint(key, (), 0, 365) # 0-364 (sort of exploring starts)
         
-        # we assume the year is 2024 for now ... check if the day is a workday or weekendday
+        # 我们目前假设年份是 2024 年... 检查日期是工作日还是周末
         def get_is_workday(day_of_year: int, offset: int = datetime.datetime(2024, 1, 1).weekday()) -> bool:
             """
-            offset=2 would make day 0 a Wednesday (i.e., if Jan 1 is a Wed).
+            offset=2 将使第 0 天成为周三（即，如果 1 月 1 日是周三）。
             """
             day_of_week = (day_of_year + offset) % 7
             return day_of_week < 5
@@ -114,7 +114,7 @@ class Chargax(JaxBaseEnv):
         new_state = self.update_time_and_clear_cars(new_state)
         new_state = self.add_new_cars(new_state, key)
 
-        # Set all variables of cars that have left to 0:
+        # 将已离开车辆的所有变量设置为 0：
         charger_state_vars, cs_structure = jax.tree.flatten(new_state.chargers_state)
         charger_state_vars = jax.tree.map(
             lambda x: x * new_state.chargers_state.charger_is_car_connected,
@@ -125,7 +125,7 @@ class Chargax(JaxBaseEnv):
         new_state = replace(
             new_state,
             chargers_state=charger_state,
-            timestep=old_state.timestep + 1 # advance time while we are at it
+            timestep=old_state.timestep + 1 # 同时推进时间
         )
 
         timestep_object = TimeStep(
@@ -160,7 +160,7 @@ class Chargax(JaxBaseEnv):
             currents, 
             -state.chargers_state.car_max_current_outtake if self.allow_discharging else 0,
             state.chargers_state.car_max_current_intake
-        )  # car_max_current_intake is 0 when no car is connected
+        )  # car_max_current_intake 在未连接车辆时为 0
         
         charger_state = replace(
             state.chargers_state,
@@ -168,23 +168,23 @@ class Chargax(JaxBaseEnv):
         )
 
         if self.renormalize_currents:
-            # NOTE: I am not sure if looping over the splitters backwards is the correct order
+            # 注意：我不确定反向遍历 splitter 是否是正确的顺序
             for splitter in self.station.splitters[::-1]:
                 charger_state = splitter.normalize_currents(charger_state)
             charger_state = self.station.root.normalize_currents(charger_state) 
 
-        ### Update Car Battery Levels
+        ### 更新车辆电池电量
         tried_charged_this_timestep = self.kw_to_kw_this_timestep(
             charger_state.charger_output_now_kw
         )
         new_car_batteries = jnp.clip(
             state.chargers_state.car_battery_now_kw + tried_charged_this_timestep,
-            state.chargers_state.car_arrival_battery_kw, # can't discharge under arrival battery
+            state.chargers_state.car_arrival_battery_kw, # 无法放电低于到达时的电量
             state.chargers_state.car_battery_capacity_kw
         )
         actual_charged_this_timestep = new_car_batteries - state.chargers_state.car_battery_now_kw
 
-        # update discharged
+        # 更新已放电电量
         discharged_this_session = jnp.maximum(
             state.chargers_state.car_discharged_this_session_kw + -actual_charged_this_timestep,
             0
@@ -196,7 +196,7 @@ class Chargax(JaxBaseEnv):
             car_discharged_this_session_kw=discharged_this_session
         )
 
-        ### Update Station Battery Levels
+        ### 更新站点电池电量
         new_battery_state = state.battery_state
         if self.include_battery:
             battery_action = actions[-1]
@@ -247,7 +247,7 @@ class Chargax(JaxBaseEnv):
         )
 
         energy_sold_to_customers = jnp.maximum(charged_this_timestep, 0)
-        # some energy should be free because it was discharged earlier
+        # 某些能量应该是免费的，因为它是在早些时候放电的
         discharged_earlier = old_state.chargers_state.car_discharged_this_session_kw
         energy_sold_to_customers = jnp.maximum(
             energy_sold_to_customers - discharged_earlier,
@@ -255,8 +255,8 @@ class Chargax(JaxBaseEnv):
         )
         customer_revenue = energy_sold_to_customers.sum() * self.elec_customer_sell_price
 
-        grid_energy_transported = jnp.where( # adjust for efficiency
-            # When charging, add losses. When discharging, subtract losses
+        grid_energy_transported = jnp.where( # 针对效率进行调整
+            # 充电时，增加损耗。放电时，减去损耗
             charged_this_timestep >= 0,
             charged_this_timestep * self.station.root.efficiency_per_charger,
             charged_this_timestep / self.station.root.efficiency_per_charger
@@ -268,11 +268,10 @@ class Chargax(JaxBaseEnv):
 
         elec_price = jax.lax.select(
             grid_energy_transported >= 0,
-            self.elec_grid_buy_price[new_state.day_of_year][new_state.timestep], # Buying from grid
-            self.elec_grid_sell_price[new_state.day_of_year][new_state.timestep] # Selling to grid
+            self.elec_grid_buy_price[new_state.day_of_year][new_state.timestep], # 从电网购买
+            self.elec_grid_sell_price[new_state.day_of_year][new_state.timestep] # 出售给电网
         )
-        energy_cost = grid_energy_transported * elec_price # $/kWh -- negative when selling
-
+        energy_cost = grid_energy_transported * elec_price # $/kWh -- 出售时为负值
         profit = new_state.profit + customer_revenue - energy_cost
 
         return replace(
@@ -301,24 +300,12 @@ class Chargax(JaxBaseEnv):
         
         charged_overtime = jnp.abs(
             cars_leaving * jnp.minimum(
-                car_time_till_leave + self.minutes_per_timestep, # add back the current timestep 
+                car_time_till_leave + self.minutes_per_timestep, # 加回当前步进 
                 0
             )).sum()
         charged_undertime = (cars_leaving * jnp.maximum(car_time_till_leave, 0)).sum()
 
-        # # Compensate cars that leave with less battery than they arrived with
-        # # NOTE: could also block this, but lets leave the agent flexible
-        # kw_to_compensate = jnp.where(
-        #     jnp.logical_and(
-        #         state.chargers_state.car_battery_now_kw < state.chargers_state.car_arrival_battery_kw,
-        #         state.chargers_state.car_battery_desired_remaining > 0
-        #     ),
-        #     state.chargers_state.car_arrival_battery_kw - state.chargers_state.car_battery_now_kw,
-        #     0
-        # ) * cars_leaving
-        # currency_to_compensate = kw_to_compensate.sum() * self.elec_customer_sell_price
-        # profit = state.profit - currency_to_compensate
-        
+ 
         car_connected = state.chargers_state.charger_is_car_connected * ~cars_leaving
 
         return replace(
@@ -340,8 +327,7 @@ class Chargax(JaxBaseEnv):
 
         key1, key2 = jax.random.split(key)
 
-        # poission dists are pre-sampled -- but each is independent, so we can just 
-        # draw any of the presampled batches at each timestep
+        # 泊松分布是预先采样的 -- 但每个都是独立的，所以我们可以在每个步进抽取任何预采样的批次
         i = jax.random.randint(key1, (), 0, self.ev_arrival_means_workdays.shape[0])
         new_cars_amount = jax.lax.select(
             state.is_workday,
@@ -349,14 +335,14 @@ class Chargax(JaxBaseEnv):
             self.ev_arrival_means_non_workdays[i][state.timestep]
         )
 
-        # Generate new chargers and put the car_connected to False when:
-        # 1. The index of the charger is already connected to a car
-        # 2. There are less incoming cars than chargers
+        # 生成新的充电桩并在以下情况将 car_connected 设置为 False：
+        # 1. 充电桩索引已连接到车辆
+        # 2. 到达的车辆少于充电桩数量
         not_connected_chargers = jnp.logical_not(state.chargers_state.charger_is_car_connected)
         sort_order = jnp.argsort(not_connected_chargers, descending=True)
         required_chargers = jnp.arange(self.station.num_chargers) < new_cars_amount
         required_chargers_in_order = jnp.zeros_like(required_chargers).at[sort_order].set(required_chargers)
-        arrival_of_new_car_positions = required_chargers_in_order * not_connected_chargers # adjust for overflow
+        arrival_of_new_car_positions = required_chargers_in_order * not_connected_chargers # 针对溢出进行调整
         incoming_chargers = self.sample_cars(key2)
         incoming_chargers = replace(
             incoming_chargers, 
@@ -379,10 +365,10 @@ class Chargax(JaxBaseEnv):
 
     def sample_cars(self, key: chex.PRNGKey) -> ChargersState:
         """
-        Returns a ChargersState based on the current scenario (user and car profiles)
-        In the returned ChargersState, all connections are filled
-        with is_car_connected to false. The required number of chargers should then 
-        be connected and then merged with the current ChargersState.
+        根据当前场景（用户和车辆配置）返回 ChargersState。
+        在返回的 ChargersState 中，所有连接都已填充，
+        但 is_car_connected 为 false。然后应连接所需数量的充电桩，
+        并与当前的 ChargersState 合并。
         """ 
         chargers_state = ChargersState(self.station)
         if self.car_profiles in ["eu", "us", "world"]:
@@ -430,7 +416,7 @@ class Chargax(JaxBaseEnv):
             # car_desired_battery_percentage = jax.random.uniform(keys[2], (self.station.num_chargers,), minval=0.8, maxval=0.95)
             # car_desired_battery_percentage = jnp.maximum(
             #     car_desired_battery_percentage,
-            #     chargers_state.car_battery_percentage # users can't desire less than what they have
+            #     chargers_state.car_battery_percentage # 用户不能期望比现有电量更少的电量
             # )
             if self.user_profiles == "highway":
                 charge_sensitive = jax.random.bernoulli(keys[2], 0.9, shape=(self.station.num_chargers,))
@@ -447,7 +433,7 @@ class Chargax(JaxBaseEnv):
 
         return replace(
             chargers_state,
-            car_arrival_battery_kw=chargers_state.car_battery_now_kw, # copy the initial battery percentage
+            car_arrival_battery_kw=chargers_state.car_battery_now_kw, # 复制初始电池百分比
         )
 
     def get_observation(self, state: EnvState) -> chex.Array:
