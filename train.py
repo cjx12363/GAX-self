@@ -23,16 +23,24 @@ TOTAL_TIMESTEPS = 1_000_000
 RUNTAG = None
 
 # ==================== 2. PID 约束参数 (适用于 ppo_pid, sac_pid) ====================
-# Cost 归一化到 [0, 1]：0 = 无过载，1 = 100% 过载
-# PID 监控的是 episode 内的**平均** cost
+# 基于论文：Stooke et al., "Responsive Safety in Reinforcement Learning by PID Lagrangian Methods"
+#
+# Cost 设计：
+# - 单步 cost ∈ [0, 1]（归一化过载率）
+# - Episode 累积 cost ≈ 0~288（288 步 × 平均 cost）
+# - cost_limit 是对 **episode 累积 cost** 的上限约束
+#
+# 示例：
+# - cost_limit = 25 表示允许 episode 累积 cost 不超过 25
+# - 如果 episode 288 步，相当于平均每步 cost ≈ 0.087（约 8.7% 过载）
 
-# A. 约束阈值
-COST_LIMIT = 0.05              # 允许的平均过载率（0.05 = 平均 5% 过载）
+# A. 约束阈值（Episode 累积 cost 上限）
+COST_LIMIT = 10              # 允许的 episode 累积 cost
 
-# B. PID 控制参数
-PID_KP = 0.5                   # 比例系数 (P): 对当前误差的瞬时响应
-PID_KI = 0.01                  # 积分系数 (I): 消除稳态误差（过大会导致乘子爆炸）
-PID_KD = 0.0                   # 微分系数 (D): 抑制振荡（默认关闭）
+# B. PID 控制参数（论文推荐值）
+PID_KP = 0.1                   # 比例系数：提供即时响应
+PID_KI = 0.001                 # 积分系数：消除稳态误差（保持较小防止震荡）
+PID_KD = 0.0                   # 微分系数：默认关闭（论文中通常不需要）
 # ======================================================
 
 if __name__ == "__main__":

@@ -429,18 +429,21 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
 
 
     def eval_func(ts, rng):
+        """评估函数：返回 episode 总 reward 和 **累积** cost"""
         def step_env(carry):
             rng, obs, es, done, ep_r, ep_c = carry
             rng, ak, sk = jax.random.split(rng, 3)
             dist = ts.actor(obs)
             action = jnp.argmax(dist.logits, axis=-1) if config.evaluate_deterministically else dist.sample(seed=ak)
             (obs, r, term, trunc, info), es = env.step(sk, es, action)
-            # cost直接从info中获取（环境已计算）
             cost = info.get("cost", 0.0)
             return (rng, obs, es, jnp.logical_or(term, trunc), ep_r + r, ep_c + cost)
         rng, rk = jax.random.split(rng)
         obs, es = env.reset(rk)
-        _, _, _, _, ep_r, ep_c = jax.lax.while_loop(lambda c: ~c[3], step_env, (rng, obs, es, False, 0.0, 0.0))
+        _, _, _, _, ep_r, ep_c = jax.lax.while_loop(
+            lambda c: ~c[3], step_env, (rng, obs, es, False, 0.0, 0.0)
+        )
+        # 返回总 reward 和 **累积** cost
         return ep_r, ep_c
 
     def train_func(rng=rng):
@@ -490,12 +493,11 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
             ts, buffer, rng = jax.lax.cond(
                 buffer.size >= config.learning_starts, do_updates, lambda x: x, (ts, buffer, rng))
             
-            # PID更新
-            # 计算每个通道的**平均** cost（不是累加！）
+            # PID更新：使用 episode **累积** cost（论文公式）
             # traj.cost 维度：[num_steps, num_envs, num_costs]
-            # 使用 mean 保持 cost 在 [0, 1] 范围
-            ep_cost_avg = traj.cost.mean(axis=0).mean(axis=0)  # [num_costs]
-            new_pid_state = update_pid_lagrange(ts.pid_state, pid_util_config, ep_cost_avg)
+            # 先在 step 维度累加，再在 env 维度取平均
+            ep_cost_sum = traj.cost.sum(axis=0).mean(axis=0)  # [num_costs]
+            new_pid_state = update_pid_lagrange(ts.pid_state, pid_util_config, ep_cost_sum)
             ts = ts._replace(pid_state=new_pid_state)
             
             # 评估
@@ -504,10 +506,10 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
             
             metric = traj.info
             metric["eval_rewards"] = eval_r
-            metric["eval_cost"] = eval_c
+            metric["eval_cost"] = eval_c  # 累积 cost
             metric["lagrangian"] = new_pid_state.multipliers
             metric["alpha"] = jnp.exp(ts.log_alpha)
-            metric["ep_cost_avg"] = ep_cost_avg
+            metric["ep_cost_sum"] = ep_cost_sum
 
             def callback(info):
                 global _pbar
@@ -531,7 +533,7 @@ def build_sac_pid_trainer(env: Chargax, config_params: dict = {}):
                             "eval_cost": info["eval_cost"],
                             "lagrangian": info["lagrangian"],
                             "alpha": info["alpha"],
-                            "ep_cost_avg": info["ep_cost_avg"],
+                            "ep_cost_sum": info["ep_cost_sum"],
                             **log_data
                         })
             jax.debug.callback(callback, metric)

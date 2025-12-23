@@ -202,7 +202,7 @@ def build_ppo_pid_trainer(
     # pid_update 逻辑已迁至 util.pid_lagrange
 
     def eval_func(train_state, rng):
-        """评估函数"""
+        """评估函数：返回 episode 总 reward 和 **累积** cost"""
         def step_env(carry):
             rng, obs, env_state, done, episode_reward, episode_cost = carry
             rng, action_key, step_key = jax.random.split(rng, 3)
@@ -214,7 +214,6 @@ def build_ppo_pid_trainer(
             (obs, reward, terminated, truncated, info), env_state = env.step(step_key, env_state, action)
             done = jnp.logical_or(terminated, truncated)
             episode_reward += reward
-            # 从info中获取cost，如果没有则默认为0
             cost = info.get("cost", 0.0)
             episode_cost += cost
             return (rng, obs, env_state, done, episode_reward, episode_cost)
@@ -232,7 +231,8 @@ def build_ppo_pid_trainer(
         rng, obs, env_state, done, episode_reward, episode_cost = jax.lax.while_loop(
             cond_func, step_env, (rng, obs, env_state, done, episode_reward, episode_cost)
         )
-
+        
+        # 返回总 reward 和 **累积** cost（与 cost_limit 直接可比）
         return episode_reward, episode_cost
 
     def train_func(rng=rng):
@@ -456,14 +456,14 @@ def build_ppo_pid_trainer(
 
             train_state = update_state[0]
             
-            # 计算每个通道的**平均** episode cost
+            # 计算 episode **累积** cost（论文公式使用累积值）
             # 维度：trajectory_batch.cost 是 [num_steps, num_envs, num_costs]
-            # 先在 step 维度取平均（得到每个 env 的平均 cost），再在 env 维度取平均
-            # 结果是 [num_costs]，范围在 [0, 1]（如果 cost 函数设计正确）
-            ep_cost_avg = trajectory_batch.cost.mean(axis=0).mean(axis=0) 
+            # 先在 step 维度累加（得到每个 env 的 episode cost），再在 env 维度取平均
+            # 结果是 [num_costs]，范围约 0~288（如果单步 cost 在 [0,1]，episode 288 步）
+            ep_cost_sum = trajectory_batch.cost.sum(axis=0).mean(axis=0)
             
-            # 使用通用 PID 控制器更新所有通道
-            new_pid_state = update_pid_lagrange(train_state.pid_state, pid_config, ep_cost_avg)
+            # 使用 PID 控制器更新乘子（传入累积 cost）
+            new_pid_state = update_pid_lagrange(train_state.pid_state, pid_config, ep_cost_sum)
             
             train_state = TrainState(
                 actor=train_state.actor,
@@ -476,7 +476,7 @@ def build_ppo_pid_trainer(
             metric = trajectory_batch.info
             metric["loss_info"] = loss_info
             metric["lagrangian_multiplier"] = new_pid_state.multipliers
-            metric["ep_cost_avg"] = ep_cost_avg
+            metric["ep_cost_sum"] = ep_cost_sum  # Episode 累积 cost
             rng = update_state[-1]
 
             rng, eval_key = jax.random.split(rng)
@@ -513,7 +513,7 @@ def build_ppo_pid_trainer(
                             "eval_rewards": info["eval_rewards"],
                             "eval_cost": info["eval_cost"],
                             "lagrangian_multiplier": info["lagrangian_multiplier"],
-                            "ep_cost_avg": info["ep_cost_avg"],
+                            "ep_cost_sum": info["ep_cost_sum"],  # Episode 累积 cost
                             **info["logging_data"]
                         })
 
