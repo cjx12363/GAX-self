@@ -1,8 +1,7 @@
 """环境配置文件 - 统一管理Chargax环境的创建和配置"""
 
 from chargax import Chargax, get_electricity_prices
-from chargax.util.reward_functions import profit
-from chargax.util.cost_functions import safety
+from chargax.util import profit, safety
 
 
 # ==================== 环境配置 ====================

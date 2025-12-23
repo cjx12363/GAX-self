@@ -1,73 +1,44 @@
 """
-Cost Functions for Constrained RL (SAC-PID, PPO-PID)
+Cost Functions for Constrained RL (PID-based algorithms)
 
-定义不同的cost函数，用于约束优化。
-cost > 0 表示违反约束，PID控制器会增加拉格朗日乘子来惩罚这种行为。
+设计原则：
+1. Cost 归一化到 [0, 1] 范围：表示"当前步的约束违反程度"
+2. Cost = 0：完全满足约束
+3. Cost = 1：严重违反约束（如变压器 100% 过载）
+
+PID 控制器使用方式：
+- 输入：episode 内各步 cost 的**平均值**
+- cost_limit：期望的平均违反程度上限（如 0.05 表示平均 5% 过载）
+- error = mean_cost - cost_limit
+- 当 error > 0 时，PID 增加惩罚，引导策略减少违规
 """
 
 import jax.numpy as jnp
-from typing import Dict, Callable
+from typing import Dict
 import chex
 
 
-def safety(info: Dict, scale: float = 1.0, **kwargs) -> chex.Array:
+def safety(info: Dict, **kwargs) -> chex.Array:
     """
-    变压器过载约束（归一化版本）。
-    Cost = (超过的功率 / 变压器总容量)
+    变压器过载约束（归一化到 [0, 1]）
+    
+    公式：cost = min(1, exceeded_capacity / transformer_capacity)
+    
+    含义：
+    - 0.0: 未过载
+    - 0.1: 过载了容量的 10%
+    - 0.5: 过载了容量的 50%
+    - 1.0: 过载了 100% 或更多（封顶）
+    
+    PID 用法示例：
+    - cost_limit = 0.05 表示"允许平均 5% 过载"
+    - 如果 episode 平均 cost = 0.1，则 error = 0.05，PID 会增加惩罚
     """
     logging_data = info.get("logging_data", {})
     exceeded = logging_data.get("exceeded_capacity", 0.0)
     capacity = logging_data.get("transformer_capacity", 1.0)
     
-    normalized_cost = exceeded / capacity
-    return normalized_cost * scale
-
-
-def satisfaction(info: Dict, scale: float = 0.1, **kwargs) -> chex.Array:
-    """未充满电量 (默认缩放 0.1)"""
-    logging_data = info.get("logging_data", {})
-    return logging_data.get("uncharged_kw", 0.0) * scale
-
-
-def satisfaction_pct(info: Dict, **kwargs) -> chex.Array:
-    """未充满百分比"""
-    logging_data = info.get("logging_data", {})
-    return logging_data.get("uncharged_percentages", 0.0)
-
-
-def rejected(info: Dict, **kwargs) -> chex.Array:
-    """拒绝客户数"""
-    logging_data = info.get("logging_data", {})
-    return logging_data.get("rejected_customers", 0.0)
-
-
-def overtime(info: Dict, **kwargs) -> chex.Array:
-    """超时充电"""
-    logging_data = info.get("logging_data", {})
-    return logging_data.get("charged_overtime", 0.0)
-
-
-def battery_degradation(info: Dict, **kwargs) -> chex.Array:
-    """电池损耗"""
-    logging_data = info.get("logging_data", {})
-    return logging_data.get("total_discharged_kw", 0.0)
-
-
-def safety_satisfaction(info: Dict, **kwargs) -> chex.Array:
-    """安全+满意度"""
-    logging_data = info.get("logging_data", {})
-    return (
-        logging_data.get("exceeded_capacity", 0.0) 
-        + 0.1 * logging_data.get("uncharged_kw", 0.0)
-    )
-
-
-def comprehensive(info: Dict, scale: float = 0.1, **kwargs) -> chex.Array:
-    """全面约束 (带整体缩放)"""
-    logging_data = info.get("logging_data", {})
-    raw_cost = (
-        logging_data.get("exceeded_capacity", 0.0)
-        + 0.1 * logging_data.get("uncharged_kw", 0.0)
-        + 0.5 * logging_data.get("rejected_customers", 0.0)
-    )
-    return raw_cost * scale
+    # 归一化：过载量 / 容量，封顶到 1.0
+    normalized_cost = exceeded / jnp.maximum(capacity, 1.0)
+    
+    return jnp.clip(normalized_cost, 0.0, 1.0)

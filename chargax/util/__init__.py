@@ -1,38 +1,15 @@
-from chargax.util.cost_functions import (
-    safety,
-    satisfaction,
-    satisfaction_pct,
-    rejected,
-    overtime,
-    battery_degradation,
-    safety_satisfaction,
-    comprehensive as comprehensive_cost,
-)
+"""
+Chargax Utility Functions
 
-from chargax.util.reward_functions import (
-    profit,
-    profit_safety,
-    profit_satisfaction,
-    balanced,
-    time_satisfaction,
-    comprehensive as comprehensive_reward,
-)
+简化设计：
+- reward: profit（利润）
+- cost: safety（变压器过载，归一化到[0,1]）
+"""
+
+from chargax.util.cost_functions import safety
+from chargax.util.reward_functions import profit
 
 __all__ = [
-    # Cost functions
-    "safety",
-    "satisfaction",
-    "satisfaction_pct",
-    "rejected",
-    "overtime",
-    "battery_degradation",
-    "safety_satisfaction",
-    "comprehensive_cost",
-    # Reward functions
-    "profit",
-    "profit_safety",
-    "profit_satisfaction",
-    "balanced",
-    "time_satisfaction",
-    "comprehensive_reward",
+    "safety",   # Cost: 变压器过载约束 [0, 1]
+    "profit",   # Reward: 利润
 ]
