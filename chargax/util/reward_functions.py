@@ -11,9 +11,8 @@ import chex
 
 
 # 归一化参考值（基于典型场景估算）
-# 单步最大利润 ≈ 充电功率 * 电价差 * 时间步长
-# 例如: 250kW * 0.5€/kWh * (5/60)h ≈ 10€
-PROFIT_NORMALIZER = 10.0
+# 单步利润通常在 0~2€ 范围
+PROFIT_NORMALIZER = 1.0
 
 
 def profit(old_state, new_state, **kwargs) -> chex.Array:
