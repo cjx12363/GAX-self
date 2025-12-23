@@ -9,7 +9,7 @@ from chargax.util import profit, safety
 NUM_CHARGERS = 16
 NUM_CHARGERS_PER_GROUP = 2
 NUM_DC_GROUPS = 5
-TRANSFORMER_CAPACITY_KW = 250.0  # 设定固定容量限制以触发过载
+TRANSFORMER_CAPACITY_KW = 200  # 设定固定容量限制以触发过载
 
 # 场景配置
 CAR_PROFILES = "eu"  # 可选: "eu", "us", "world"
