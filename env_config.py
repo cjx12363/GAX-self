@@ -38,7 +38,7 @@ def create_env() -> Chargax:
     env = Chargax(
         # 电价
         elec_grid_buy_price=electricity_prices,
-        elec_grid_sell_price=electricity_prices * 0.8,  # 卖电价格为买电价格的80%
+        elec_grid_sell_price=electricity_prices * 1.0,  # 卖电价格为买电价格的80%
         elec_customer_sell_price=CUSTOMER_SELL_PRICE,
         
         # 场景

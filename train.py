@@ -18,24 +18,15 @@ from env_config import create_env, get_env_info, get_groupname
 
 # ==================== 1. 训练实验设置 ====================
 SEED = 42
-ALGORITHM = "ppo_pid"  # 可选: "ppo", "ppo_pid", "sac_pid"
+ALGORITHM = "ppo"  # 可选: "ppo", "ppo_pid", "sac_pid"
 TOTAL_TIMESTEPS = 1_000_000
 RUNTAG = None
 
 # ==================== 2. PID 约束参数 (适用于 ppo_pid, sac_pid) ====================
-# 基于论文：Stooke et al., "Responsive Safety in Reinforcement Learning by PID Lagrangian Methods"
-#
-# Cost 设计：
-# - 单步 cost ∈ [0, 1]（归一化过载率）
-# - Episode 累积 cost ≈ 0~288（288 步 × 平均 cost）
-# - cost_limit 是对 **episode 累积 cost** 的上限约束
+COST_LIMIT = 25              # 允许的 episode 累积 cost
 
-# A. 约束阈值（Episode 累积 cost 上限）
-COST_LIMIT = 10              # 允许的 episode 累积 cost
-
-# B. PID 控制参数（论文推荐值）
 PID_KP = 0.1                   # 比例系数：提供即时响应
-PID_KI = 0.001                 # 积分系数：消除稳态误差（保持较小防止震荡）
+PID_KI = 0.01                  # 积分系数：加速收敛（原0.001太慢，10x加速）
 PID_KD = 0.0                   # 微分系数：默认关闭（论文中通常不需要）
 # ======================================================
 
