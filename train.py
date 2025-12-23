@@ -18,7 +18,7 @@ from env_config import create_env, get_env_info, get_groupname
 
 # ==================== 1. 训练实验设置 ====================
 SEED = 42
-ALGORITHM = "ppo_pid"  # 可选: "ppo", "ppo_pid", "sac_pid"
+ALGORITHM = "ppo"  # 可选: "ppo", "ppo_pid", "sac_pid"
 TOTAL_TIMESTEPS = 1_000_000
 RUNTAG = None
 
