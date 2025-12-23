@@ -29,10 +29,6 @@ RUNTAG = None
 # - 单步 cost ∈ [0, 1]（归一化过载率）
 # - Episode 累积 cost ≈ 0~288（288 步 × 平均 cost）
 # - cost_limit 是对 **episode 累积 cost** 的上限约束
-#
-# 示例：
-# - cost_limit = 25 表示允许 episode 累积 cost 不超过 25
-# - 如果 episode 288 步，相当于平均每步 cost ≈ 0.087（约 8.7% 过载）
 
 # A. 约束阈值（Episode 累积 cost 上限）
 COST_LIMIT = 10              # 允许的 episode 累积 cost
