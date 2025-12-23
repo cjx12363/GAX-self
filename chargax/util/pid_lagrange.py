@@ -24,11 +24,6 @@ PID Lagrangian Controller for Constrained RL
    - 传统方法只有 I 项，导致振荡和超调
    - 添加 P 项提供即时响应（阻尼）
    - 添加 D 项预测趋势（预测控制）
-
-4. 参数调优建议（来自论文）：
-   - Ki: 0.01 ~ 0.1（主要决定稳态）
-   - Kp: 0.1 ~ 1.0（决定响应速度）
-   - Kd: 0 或很小（通常不需要）
 """
 
 import jax

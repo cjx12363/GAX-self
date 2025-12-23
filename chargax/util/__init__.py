@@ -8,8 +8,13 @@ Chargax Utility Functions
 
 from chargax.util.cost_functions import safety
 from chargax.util.reward_functions import profit
+from chargax.util.training_logger import TrainingLogger, init_logger, get_logger
 
 __all__ = [
     "safety",   # Cost: 变压器过载约束 [0, 1]
     "profit",   # Reward: 利润
+    "TrainingLogger",  # 训练数据记录器
+    "init_logger",
+    "get_logger",
 ]
+

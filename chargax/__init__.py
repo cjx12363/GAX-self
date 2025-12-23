@@ -7,4 +7,3 @@ from .environment._data_loaders import get_scenario, get_electricity_prices, get
 
 from .algorithms.ppo import build_ppo_trainer
 from .algorithms.ppo_pid import build_ppo_pid_trainer
-from .algorithms.sac_pid import build_sac_pid_trainer
