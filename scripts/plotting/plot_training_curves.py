@@ -123,6 +123,86 @@ def plot_training_curves(
     return fig
 
 
+def plot_training_curves_single_axis(
+    data: dict,
+    cost_limit: float = 25.0,
+    smooth_alpha: float = 0.9,
+    output_path: str = None,
+    title: str = None
+):
+    """
+    绑制单轴训练曲线（两个子图分别展示 Reward 和 Cost）
+    
+    参数:
+        data: 包含各算法数据的字典
+        cost_limit: 安全阈值
+        smooth_alpha: EMA平滑系数
+        output_path: 输出路径
+        title: 图表标题
+    """
+    setup_style()
+    
+    # 创建 2x1 子图
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(7, 6), dpi=150, sharex=True)
+    
+    # 绘制各算法曲线
+    for algo_key, algo_data in data.items():
+        steps = algo_data["steps"]
+        color = COLORS.get(algo_key, "#000000")
+        label = get_algorithm_label(algo_key)
+        
+        # 上图：Reward
+        reward_mean = smooth_curve(algo_data["reward_mean"], smooth_alpha)
+        reward_std = smooth_curve(algo_data["reward_std"], smooth_alpha)
+        
+        ax1.plot(steps, reward_mean, color=color, linestyle="-", 
+                linewidth=1.5, label=label)
+        ax1.fill_between(steps, reward_mean - reward_std, reward_mean + reward_std,
+                        color=color, alpha=0.2)
+        
+        # 下图：Cost
+        cost_mean = smooth_curve(algo_data["cost_mean"], smooth_alpha)
+        cost_std = smooth_curve(algo_data["cost_std"], smooth_alpha)
+        
+        ax2.plot(steps, cost_mean, color=color, linestyle="-", 
+                linewidth=1.5, label=label)
+        ax2.fill_between(steps, cost_mean - cost_std, cost_mean + cost_std,
+                        color=color, alpha=0.2)
+    
+    # 添加安全阈值线（只在 Cost 图上）
+    ax2.axhline(y=cost_limit, color=COLORS["constraint"], linestyle=":", 
+               linewidth=2, label=f"Cost Limit (d={cost_limit})")
+    
+    # 设置轴标签
+    ax1.set_ylabel("Cumulative Reward", fontsize=11)
+    ax2.set_ylabel("Cumulative Cost", fontsize=11)
+    ax2.set_xlabel("Training Steps", fontsize=11)
+    
+    # 图例
+    ax1.legend(loc='upper left', frameon=False, fontsize=9)
+    ax2.legend(loc='upper right', frameon=False, fontsize=9)
+    
+    # 网格
+    ax1.grid(True, alpha=0.3, linestyle='--')
+    ax2.grid(True, alpha=0.3, linestyle='--')
+    
+    # 子图标题
+    ax1.set_title("(a) Reward Curves", fontsize=10, loc='left')
+    ax2.set_title("(b) Cost Curves", fontsize=10, loc='left')
+    
+    # 总标题
+    if title:
+        fig.suptitle(title, fontsize=12)
+    
+    plt.tight_layout()
+    
+    # 保存
+    if output_path:
+        save_figure(fig, output_path)
+    
+    return fig
+
+
 def generate_demo_data(num_steps: int = 500, num_seeds: int = 5) -> dict:
     """生成演示数据"""
     steps = np.linspace(0, 1000000, num_steps)
@@ -210,12 +290,23 @@ def main():
         print(f"从 {args.data} 加载数据...")
         data = load_data_from_logs(args.data)
     
-    # 绑图
-    fig = plot_training_curves(
+    # 绘制双轴图
+    output_dual = args.output + "_dual" if args.output else "figures/training_curves_dual"
+    fig1 = plot_training_curves(
         data=data,
         cost_limit=args.cost_limit,
         smooth_alpha=args.smooth,
-        output_path=args.output,
+        output_path=output_dual,
+        title=args.title
+    )
+    
+    # 绘制单轴图（两个子图）
+    output_single = args.output + "_single" if args.output else "figures/training_curves_single"
+    fig2 = plot_training_curves_single_axis(
+        data=data,
+        cost_limit=args.cost_limit,
+        smooth_alpha=args.smooth,
+        output_path=output_single,
         title=args.title
     )
     
