@@ -50,3 +50,9 @@ Thumbs.db
 *.pt
 checkpoints/
 wandb/
+
+# 生成的图表
+figures/
+
+# 演示数据
+scripts/plotting/demo_data/

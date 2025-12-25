@@ -152,46 +152,7 @@ def plot_kd_ablation_curves(
     return fig
 
 
-def generate_demo_data():
-    """生成演示数据"""
-    np.random.seed(42)
-    
-    # K_p 和 K_i 的参数网格
-    kp_values = np.array([0.01, 0.05, 0.1, 0.2, 0.5])
-    ki_values = np.array([0.001, 0.005, 0.01, 0.02, 0.05])
-    
-    # 性能矩阵（Reward/Cost 比率）
-    # 模拟：K_p 和 K_i 在中间值时性能最好
-    kp_grid, ki_grid = np.meshgrid(kp_values, ki_values)
-    
-    # 模拟性能函数：在 K_p=0.1, K_i=0.01 附近最优
-    performance = (
-        5.0 - 
-        10 * (np.log10(kp_grid) - np.log10(0.1)) ** 2 -
-        10 * (np.log10(ki_grid) - np.log10(0.01)) ** 2 +
-        np.random.randn(*kp_grid.shape) * 0.2
-    )
-    performance = np.clip(performance, 1, 6)
-    
-    # K_d 消融曲线数据
-    steps = np.linspace(0, 1000000, 200)
-    kd_values = [0.0, 0.05, 0.1, 0.2]
-    cost_curves = {}
-    
-    for kd in kd_values:
-        t = steps / 100000
-        if kd == 0:
-            # PI控制：有一些超调
-            cost = 40 * np.exp(-t * 0.5) + 15 + 10 * np.sin(t * 2) * np.exp(-t/3)
-        else:
-            # PID控制：超调减少，收敛更平滑
-            damping = 1 + kd * 5
-            cost = 40 * np.exp(-t * 0.5 * damping) + 15 + 5 * np.sin(t * 2) * np.exp(-t/damping)
-        cost += np.random.randn(len(steps)) * 2
-        cost = np.maximum(10, cost)
-        cost_curves[kd] = cost
-    
-    return kp_values, ki_values, performance, steps, cost_curves, kd_values
+from scripts.plotting.demo_data import generate_ablation_heatmap_demo_data as generate_demo_data
 
 
 def main():

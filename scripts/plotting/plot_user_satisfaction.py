@@ -118,35 +118,7 @@ def plot_user_satisfaction(
     return fig
 
 
-def generate_demo_data(num_users: int = 200) -> dict:
-    """生成演示数据"""
-    np.random.seed(42)
-    
-    # PID-Lagrangian: 紧凑分布，低偏差
-    pid_deviation = np.random.normal(0.02, 0.05, num_users)
-    pid_deviation = np.clip(pid_deviation, -0.15, 0.20)
-    
-    # PPO-Lagrangian: 有长尾效应（某些用户充电不足）
-    lag_deviation = np.concatenate([
-        np.random.normal(0.03, 0.06, int(num_users * 0.85)),  # 大多数正常
-        np.random.uniform(0.2, 0.5, int(num_users * 0.15))    # 长尾
-    ])
-    np.random.shuffle(lag_deviation)
-    
-    # MPC: 较好但偶尔有偏差
-    mpc_deviation = np.random.normal(0.04, 0.08, num_users)
-    mpc_deviation = np.clip(mpc_deviation, -0.2, 0.3)
-    
-    # Random: 高偏差，分布很广
-    random_deviation = np.random.normal(0.15, 0.15, num_users)
-    random_deviation = np.clip(random_deviation, -0.3, 0.6)
-    
-    return {
-        "ppo_pid": pid_deviation,
-        "ppo_lag": lag_deviation,
-        "mpc": mpc_deviation,
-        "random": random_deviation
-    }
+from scripts.plotting.demo_data import generate_user_satisfaction_demo_data as generate_demo_data
 
 
 def load_data_from_csv(csv_path: str) -> dict:

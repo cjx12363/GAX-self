@@ -104,32 +104,7 @@ def plot_pareto_frontier(
     return fig
 
 
-def generate_demo_data(num_points: int = 10) -> dict:
-    """生成演示数据"""
-    np.random.seed(42)
-    
-    # PID-Lagrangian: 左上角区域（低代价、高收益）
-    pid_costs = np.random.normal(20, 3, num_points)
-    pid_returns = np.random.normal(120, 8, num_points)
-    
-    # PPO-Lagrangian: 分布更广，有些点超出阈值
-    lag_costs = np.random.normal(28, 8, num_points)
-    lag_returns = np.random.normal(110, 15, num_points)
-    
-    # PPO (无约束): 高收益但高代价
-    ppo_costs = np.random.normal(50, 10, num_points)
-    ppo_returns = np.random.normal(140, 10, num_points)
-    
-    # CPO: 保守策略，低代价但也低收益
-    cpo_costs = np.random.normal(15, 3, num_points)
-    cpo_returns = np.random.normal(90, 12, num_points)
-    
-    return {
-        "ppo_pid": {"costs": pid_costs, "returns": pid_returns},
-        "ppo_lag": {"costs": lag_costs, "returns": lag_returns},
-        "ppo": {"costs": ppo_costs, "returns": ppo_returns},
-        "cpo": {"costs": cpo_costs, "returns": cpo_returns}
-    }
+from scripts.plotting.demo_data import generate_pareto_frontier_demo_data as generate_demo_data
 
 
 def load_data_from_csv(csv_path: str) -> dict:

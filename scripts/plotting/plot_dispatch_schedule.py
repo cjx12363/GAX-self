@@ -130,52 +130,7 @@ def plot_dispatch_schedule(
     return fig
 
 
-def generate_demo_data(num_steps: int = 288):
-    """
-    生成演示数据
-    288步 = 24小时（每步5分钟）
-    """
-    time_hours = np.linspace(0, 24, num_steps)
-    
-    # 基础负荷：典型日负荷曲线（早晚高峰）
-    base_load = (
-        80 +                                        # 基础
-        30 * np.sin((time_hours - 6) * np.pi / 12) * (time_hours > 6) * (time_hours < 22) +  # 日间活动
-        20 * np.exp(-((time_hours - 18) ** 2) / 4)  # 傍晚高峰
-    )
-    base_load = np.maximum(60, base_load)  # 最小负荷
-    
-    # PID方法的EV充电负荷：智能调度（低价时充电、避开高峰）
-    ev_load_pid = np.zeros(num_steps)
-    # 凌晨2-5点大量充电
-    mask1 = (time_hours >= 2) & (time_hours <= 5)
-    ev_load_pid[mask1] = 80 + np.random.randn(np.sum(mask1)) * 5
-    # 中午适量充电
-    mask2 = (time_hours >= 11) & (time_hours <= 13)
-    ev_load_pid[mask2] = 40 + np.random.randn(np.sum(mask2)) * 3
-    # 傍晚高峰减少充电
-    mask3 = (time_hours >= 17) & (time_hours <= 20)
-    ev_load_pid[mask3] = 10 + np.random.randn(np.sum(mask3)) * 2
-    ev_load_pid = np.maximum(0, ev_load_pid)
-    
-    # 基线方法的EV充电负荷：不够智能，可能造成越线
-    ev_load_baseline = np.zeros(num_steps)
-    # 任何时段都可能充电
-    mask4 = (time_hours >= 8) & (time_hours <= 20)
-    ev_load_baseline[mask4] = 60 + np.random.randn(np.sum(mask4)) * 15
-    mask5 = (time_hours >= 2) & (time_hours <= 6)
-    ev_load_baseline[mask5] = 50 + np.random.randn(np.sum(mask5)) * 10
-    ev_load_baseline = np.maximum(0, ev_load_baseline)
-    
-    # 电价曲线
-    electricity_price = (
-        0.10 +                                      # 基础价格
-        0.15 * np.sin((time_hours - 4) * np.pi / 12) * (time_hours > 4) * (time_hours < 22) +
-        0.10 * np.exp(-((time_hours - 18) ** 2) / 4)  # 傍晚高峰价
-    )
-    electricity_price = np.maximum(0.05, electricity_price)
-    
-    return time_hours, base_load, ev_load_pid, ev_load_baseline, electricity_price
+from scripts.plotting.demo_data import generate_dispatch_schedule_demo_data as generate_demo_data
 
 
 def main():

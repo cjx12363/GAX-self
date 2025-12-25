@@ -105,32 +105,7 @@ def plot_multiplier_dynamics(
     return fig
 
 
-def generate_demo_data(num_steps: int = 500) -> dict:
-    """生成演示数据，展示震荡与平滑的对比"""
-    steps = np.linspace(0, 1000000, num_steps)
-    t = steps / 100000
-    
-    # Standard Lagrangian: 明显震荡
-    lambda_lag = 0.5 + 0.3 * np.sin(t * 5) * np.exp(-t/8) + 0.1 * np.sin(t * 15) * np.exp(-t/4)
-    lambda_lag = np.maximum(0, lambda_lag + np.random.randn(num_steps) * 0.05)
-    
-    # PID-Lagrangian: 快速上升后稳定
-    target = 0.5
-    lambda_pid = target * (1 - np.exp(-t * 2)) + np.random.randn(num_steps) * 0.02
-    lambda_pid = np.maximum(0, lambda_pid)
-    
-    return {
-        "ppo_lag": {
-            "steps": steps,
-            "multiplier_mean": lambda_lag,
-            "multiplier_std": np.abs(np.random.randn(num_steps) * 0.03)
-        },
-        "ppo_pid": {
-            "steps": steps,
-            "multiplier_mean": lambda_pid,
-            "multiplier_std": np.abs(np.random.randn(num_steps) * 0.01)
-        }
-    }
+from scripts.plotting.demo_data import generate_multiplier_dynamics_demo_data as generate_demo_data
 
 
 def main():

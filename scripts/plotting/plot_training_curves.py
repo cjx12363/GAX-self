@@ -203,48 +203,7 @@ def plot_training_curves_single_axis(
     return fig
 
 
-def generate_demo_data(num_steps: int = 500, num_seeds: int = 5) -> dict:
-    """生成演示数据"""
-    steps = np.linspace(0, 1000000, num_steps)
-    
-    def generate_curves(algo_type: str):
-        """生成不同算法的特征曲线"""
-        np.random.seed(42)
-        
-        if algo_type == "ppo_pid":
-            # PID-Lagrangian: 快速收敛，低代价
-            reward = 80 + 40 * (1 - np.exp(-steps / 200000)) + np.random.randn(num_steps) * 5
-            cost = 30 * np.exp(-steps / 150000) + 15 + np.random.randn(num_steps) * 3
-        elif algo_type == "ppo_lag":
-            # PPO-Lagrangian: 有震荡
-            t = steps / 100000
-            reward = 70 + 35 * (1 - np.exp(-t)) + 10 * np.sin(t * 2) * np.exp(-t/5) + np.random.randn(num_steps) * 8
-            cost = 25 + 15 * np.sin(t * 3) * np.exp(-t/3) + np.random.randn(num_steps) * 5
-        elif algo_type == "ppo":
-            # PPO (无约束): 高奖励但高代价
-            reward = 90 + 50 * (1 - np.exp(-steps / 150000)) + np.random.randn(num_steps) * 6
-            cost = 60 + 20 * np.sin(steps / 100000) + np.random.randn(num_steps) * 10
-        else:
-            reward = 50 + np.random.randn(num_steps) * 10
-            cost = 40 + np.random.randn(num_steps) * 10
-        
-        # 模拟多种子
-        reward_all = np.array([reward + np.random.randn(num_steps) * 5 for _ in range(num_seeds)])
-        cost_all = np.array([cost + np.random.randn(num_steps) * 3 for _ in range(num_seeds)])
-        
-        return {
-            "steps": steps,
-            "reward_mean": np.mean(reward_all, axis=0),
-            "reward_std": np.std(reward_all, axis=0),
-            "cost_mean": np.mean(cost_all, axis=0),
-            "cost_std": np.std(cost_all, axis=0)
-        }
-    
-    return {
-        "ppo_pid": generate_curves("ppo_pid"),
-        "ppo_lag": generate_curves("ppo_lag"),
-        "ppo": generate_curves("ppo")
-    }
+from scripts.plotting.demo_data import generate_training_curves_demo_data as generate_demo_data
 
 
 def load_data_from_logs(log_dir: str) -> dict:
